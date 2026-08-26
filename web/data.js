@@ -70,8 +70,8 @@ function renderActiveSection() {
     const empty = document.createElement("section");
     empty.className = "empty-state";
     empty.innerHTML = `
-      <h4>暂无数据</h4>
-      <p>这个模块还没有写入内容。后续在 Discord 里上传、导入或同步后，会自动出现在这里。</p>
+      <h4>No data yet</h4>
+      <p>This module does not have saved data yet. After you upload, import, or sync from Discord, it will appear here automatically.</p>
     `;
     dataBoard.appendChild(empty);
     return;
@@ -145,15 +145,15 @@ function renderKnowledgeTree(tree) {
     const head = document.createElement("p");
     head.className = "tree-detail-head";
     const uidText = group.uid ? ` · UID ${group.uid}` : "";
-    head.textContent = `${category.label} · ${group.name}${uidText} · 已导入 ${group.count} 条`;
+    head.textContent = `${category.label} · ${group.name}${uidText} · ${group.count} imported`;
     detail.appendChild(head);
 
     if (!(group.items || []).length) {
       const empty = document.createElement("p");
       empty.className = "tree-empty";
       empty.textContent = group.pending
-        ? `这个来源还没开始导入，共 ${group.pending} 条待同步。每天定时任务会分批抓取，避免触发 B 站接口限流。`
-        : "这个来源还没有导入任何内容。";
+        ? `This source has not started importing yet. ${group.pending} items are waiting for scheduled sync.`
+        : "This source has not imported any content yet.";
       detail.appendChild(empty);
       return;
     }
@@ -168,7 +168,7 @@ function renderKnowledgeTree(tree) {
         const ask = document.createElement("a");
         ask.className = "tree-ask";
         ask.href = askUrl(item.prompt);
-        ask.textContent = "问它";
+        ask.textContent = "Ask";
         row.appendChild(ask);
       }
       detail.appendChild(row);
@@ -195,7 +195,7 @@ function renderRecord(item, sectionKey) {
     <a class="record-action"></a>
   `;
   article.querySelector(".record-type").textContent = labelFor(sectionKey);
-  article.querySelector("h4").textContent = item.title || "未命名数据";
+  article.querySelector("h4").textContent = item.title || "Untitled data";
   article.querySelector(".record-meta").textContent = item.meta || "";
   article.querySelector(".record-desc").textContent = item.description || "";
 
@@ -218,31 +218,32 @@ function renderRecord(item, sectionKey) {
     for (const src of images.slice(0, 6)) {
       const img = document.createElement("img");
       img.src = src;
-      img.alt = item.title || "数据图片";
+      img.alt = item.title || "Data image";
       img.loading = "lazy";
       imageGrid.appendChild(img);
     }
   }
 
   const action = article.querySelector(".record-action");
-  action.textContent = "用它提问";
+  action.textContent = "Ask with this";
   action.href = askUrl(item.prompt || item.title || "");
   return article;
 }
 
 function labelFor(key) {
   return {
-    profile: "画像",
+    profile: "Profile",
     "personal-bests": "PB",
-    rag: "知识",
+    rag: "Knowledge",
     coros: "COROS",
-  }[key] || "数据";
+    photos: "Photos",
+  }[key] || "Data";
 }
 
 async function boot() {
   try {
     const response = await fetch("/api/data");
-    if (!response.ok) throw new Error("读取失败");
+    if (!response.ok) throw new Error("Failed to load data");
     const payload = await response.json();
     sections = Array.isArray(payload.sections) ? payload.sections : [];
     activeKey = sections[0]?.key || "";
@@ -252,8 +253,8 @@ async function boot() {
   } catch {
     dataBoard.innerHTML = `
       <section class="empty-state">
-        <h4>数据暂时不可用</h4>
-        <p>后端没有返回数据，请确认 COROS Running Agent 服务正在运行。</p>
+        <h4>Data is temporarily unavailable</h4>
+        <p>The backend did not return data. Check that COROS Running Agent is running.</p>
       </section>
     `;
   }

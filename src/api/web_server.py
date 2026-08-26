@@ -54,46 +54,46 @@ class DemoResponse:
 
 
 SAMPLE_PROMPTS = {
-    "跑步问答": "我现在半马 1:40，全马 4:30，想提高全马成绩，应该加强哪部分训练？",
-    "运动报告": "我今天这次训练怎么样？下一次应该怎么练？",
-    "运动记录": "列出我最近 90 天的运动记录",
+    "Running Q&A": "My half marathon is 1:40 and my marathon is 4:30. What should I improve?",
+    "Workout report": "How was my latest workout, and what should I do next?",
+    "Activity list": "List my COROS activities from the last 90 days",
 }
 
 SAMPLE_ACTIONS = (
     {
-        "title": "查最近 90 天运动记录",
+        "title": "List my last 90 days",
         "description": "",
-        "prompt": "列出我最近 90 天的运动记录",
+        "prompt": "List my COROS activities from the last 90 days",
         "mode": "web",
     },
     {
-        "title": "查最近一次训练报告",
+        "title": "Review my latest workout",
         "description": "",
-        "prompt": "我今天这次训练怎么样？下一次应该怎么练？",
+        "prompt": "How was my latest workout, and what should I do next?",
         "mode": "web",
     },
     {
-        "title": "查个人 PB",
+        "title": "Show my PBs",
         "description": "",
-        "prompt": "查我的个人 PB",
+        "prompt": "Show my personal bests",
         "mode": "web",
     },
     {
-        "title": "按我的水平选跑鞋",
+        "title": "Choose race shoes",
         "description": "",
-        "prompt": "根据我的实际水平和目标，我下一场马拉松该穿什么鞋？",
+        "prompt": "Based on my fitness and goal, what shoes should I wear for my next marathon?",
         "mode": "web",
     },
     {
-        "title": "查跑鞋测评",
+        "title": "Search shoe reviews",
         "description": "",
-        "prompt": "知识库里有哪些跑鞋测评？挑几双适合我的说说",
+        "prompt": "What shoe reviews are in my knowledge base? Pick a few that fit my profile",
         "mode": "web",
     },
     {
-        "title": "查成绩瓶颈",
+        "title": "Find my bottleneck",
         "description": "",
-        "prompt": "我现在半马 1:40，全马 4:30，想提高全马成绩，应该加强哪部分训练？",
+        "prompt": "My half marathon is 1:40 and my marathon is 4:30. What should I improve?",
         "mode": "web",
     },
 )
@@ -101,11 +101,13 @@ SAMPLE_ACTIONS = (
 
 def _route_prompt(prompt: str) -> str:
     text = prompt.lower()
-    if any(term in text for term in ("pb", "personal best")) or any(
+    if any(term in text for term in ("pb", "personal best", "personal bests")) or any(
         term in prompt for term in ("个人最好", "最好成绩", "最好记录")
     ):
         return "pb"
-    if any(term in prompt for term in ("运动记录", "历史运动", "记录列表")) or "activity" in text:
+    if any(term in prompt for term in ("运动记录", "历史运动", "记录列表")) or any(
+        term in text for term in ("activity", "activities", "workouts", "last 90 days")
+    ):
         return "activity-list"
     return "running"
 
@@ -115,66 +117,65 @@ def _demo_response(prompt: str) -> DemoResponse:
     if route == "activity-list":
         return DemoResponse(
             message=(
-                "查到最近 90 天的 COROS 运动记录，共 3 条。\n\n"
+                "Found 3 COROS activities from the last 90 days.\n\n"
                 "```text\n"
                 "1. 2026-08-20 | Indoor Run | 10.00 km | 39:22\n"
                 "2. 2026-08-12 | Indoor Run | 8.01 km | 39:22\n"
                 "3. 2026-07-28 | Outdoor Run | 6.20 km | 34:10\n"
                 "```\n\n"
-                "你可以继续说：`分析第 1 条运动记录`。真实模式下会读取所选记录详情，"
-                "再生成对应报告。"
+                "You can continue with: `Analyze activity 1`. In real mode, the agent reads the selected activity details "
+                "and generates a workout report."
             ),
-            capability="运动记录浏览器",
+            capability="Activity browser",
             confidence=0.92,
-            tools=("COROS MCP", "运动摘要缓存"),
-            graph_steps=("查询运动摘要", "展示列表", "等待选择", "按需读取详情"),
+            tools=("COROS MCP", "Activity summary cache"),
+            graph_steps=("Query activity summaries", "Render list", "Wait for selection", "Fetch selected details"),
             citations=(),
-            memory=("last_activity_list：覆盖式短期选择缓存",),
+            memory=("last_activity_list: short-lived selection cache",),
         )
     if route == "pb":
         return DemoResponse(
             message=(
-                "你的 COROS 自动 PB：\n\n"
-                "| 项目 | 成绩 | 日期 | 来源 |\n"
+                "Your COROS automatic PBs:\n\n"
+                "| Distance | Time | Date | Source |\n"
                 "|---|---:|---|---|\n"
-                "| 1 公里 | - | - | - |\n"
-                "| 3 公里 | - | - | - |\n"
-                "| 5 公里 | - | - | - |\n"
-                "| 10 公里 | 39:22 | 2026-08-12 | COROS 自动检测 |\n"
-                "| 半马 | - | - | - |\n"
-                "| 全马 | - | - | - |\n\n"
-                "PB 只能由 COROS 运动详情自动更新，不能通过聊天手动修改。"
+                "| 1K | - | - | - |\n"
+                "| 3K | - | - | - |\n"
+                "| 5K | - | - | - |\n"
+                "| 10K | 39:22 | 2026-08-12 | Auto-detected from COROS |\n"
+                "| Half marathon | - | - | - |\n"
+                "| Marathon | - | - | - |\n\n"
+                "PBs are only updated automatically from COROS activity details and cannot be edited manually in chat."
             ),
-            capability="COROS 自动 PB",
+            capability="COROS automatic PBs",
             confidence=0.92,
-            tools=("COROS MCP", "长期记忆"),
-            graph_steps=("读取 PB 记忆", "返回只读表格"),
+            tools=("COROS MCP", "Long-term memory"),
+            graph_steps=("Read PB memory", "Return read-only table"),
             citations=(),
-            memory=("personal_bests：只由 COROS 详情自动写入",),
+            memory=("personal_bests: only updated from COROS activity details",),
         )
     return DemoResponse(
         message=(
-            "## 临时判断\n"
-            "> 你的半马能力明显高于当前全马表现，短板更可能在马拉松专项耐力，而不是整体体能。\n\n"
-            "## 为什么这么判断\n"
-            "- 半马 1:40 推算的全马成绩应该远好于 4:30，这个差距通常指向专项耐力、配速控制、"
-            "补给或长距离后段维持能力。\n\n"
-            "## 还需要确认\n"
-            "1. 你最近 1-2 个月的周跑量大概是多少？\n"
-            "2. 赛前最长一次长距离跑了多少公里？\n"
-            "3. 上一次全马后半程具体发生了什么？\n\n"
-            "## 现在可以先做什么\n"
-            "- 先别急着加量，把大部分训练放回能边跑边说话的轻松配速，每周固定安排一次长距离。"
+            "## Initial read\n"
+            "> Your half-marathon ability is clearly stronger than your current marathon result. The limiter is more likely marathon-specific endurance than raw fitness.\n\n"
+            "## Why\n"
+            "- A 1:40 half marathon usually predicts a much faster marathon than 4:30. That gap often points to endurance, pacing, fueling, or late-race durability.\n\n"
+            "## What I still need\n"
+            "1. What has your weekly mileage been over the last 1-2 months?\n"
+            "2. What was your longest long run before the marathon?\n"
+            "3. What happened in the second half of your last marathon?\n\n"
+            "## What to do for now\n"
+            "- Do not rush into more volume. Put most runs back at conversational easy pace, and keep one consistent long run each week."
         ),
-        capability="跑步教练",
+        capability="Running coach",
         confidence=0.94,
-        tools=("COROS MCP", "LangGraph", "RAG 检索", "教练 Skill", "长期记忆"),
-        graph_steps=("请求路由", "工具规划", "获取上下文", "检索知识库", "生成回答", "质量检查"),
+        tools=("COROS MCP", "LangGraph", "RAG retrieval", "Coach skill", "Long-term memory"),
+        graph_steps=("Route request", "Plan tools", "Fetch context", "Retrieve knowledge", "Generate answer", "Quality check"),
         citations=(
-            "《丹尼尔斯经典跑步训练法》p.143：马拉松计划应基于现实的当前能力。",
-            "已导入跑步长视频：长距离训练与补给内容作为辅助依据。",
+            "Daniels' Running Formula p.143: marathon plans should be based on realistic current ability.",
+            "Imported long-form running videos: long-run and fueling content used as supporting context.",
         ),
-        memory=("当前成绩：半马 1:40:00", "当前成绩：全马 4:30:00"),
+        memory=("Current result: half marathon 1:40:00", "Current result: marathon 4:30:00"),
     )
 
 
@@ -187,8 +188,8 @@ def _demo_trace_modules(prompt: str) -> tuple[str, ...]:
     return ("entry", "router", "capability", "profile", "knowledge", "llm", "answer")
 
 
-ARCHITECTURE_DOC_PATH = ROOT_DIR / "docs" / "ARCHITECTURE.md"
-RAG_DOC_PATH = ROOT_DIR / "docs" / "rag-pipeline.md"
+ARCHITECTURE_DOC_PATH = ROOT_DIR / "docs" / "ARCHITECTURE.en.md"
+RAG_DOC_PATH = ROOT_DIR / "docs" / "rag-pipeline.en.md"
 
 
 def _split_markdown(text: str) -> list[dict[str, Any]]:
@@ -228,8 +229,8 @@ def _tech_payload() -> dict[str, Any]:
     """把开源版通用技术文档整理成网页 tab。"""
     return {
         "tabs": [
-            {"key": "architecture", "title": "系统架构", "items": _doc_items(ARCHITECTURE_DOC_PATH)},
-            {"key": "rag", "title": "RAG 全流程", "items": _rag_items()},
+            {"key": "architecture", "title": "System architecture", "items": _doc_items(ARCHITECTURE_DOC_PATH)},
+            {"key": "rag", "title": "RAG pipeline", "items": _rag_items()},
         ]
     }
 
@@ -336,7 +337,7 @@ class WebHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path not in {"/api/chat", "/api/chat/stream"}:
-            self._send(*_json_response({"error": "未找到接口"}, HTTPStatus.NOT_FOUND))
+            self._send(*_json_response({"error": "Endpoint not found"}, HTTPStatus.NOT_FOUND))
             return
 
         source = self._client_ip()
@@ -344,7 +345,7 @@ class WebHandler(BaseHTTPRequestHandler):
         if not allowed:
             log_event("rate_limited", source=source, retry_after=retry_after)
             status, body, content_type = _json_response(
-                {"error": f"请求太频繁，请 {retry_after} 秒后再试。"},
+                {"error": f"Too many requests. Try again in {retry_after} seconds."},
                 HTTPStatus.TOO_MANY_REQUESTS,
             )
             self._send(
@@ -361,7 +362,7 @@ class WebHandler(BaseHTTPRequestHandler):
             data = json.loads(raw.decode("utf-8")) if raw else {}
             prompt = str(data.get("message", "")).strip()
             if not prompt:
-                self._send(*_json_response({"error": "请输入消息"}, HTTPStatus.BAD_REQUEST))
+                self._send(*_json_response({"error": "Message is required"}, HTTPStatus.BAD_REQUEST))
                 return
 
             conversation_id = self._conversation_id(data)
@@ -433,14 +434,14 @@ class WebHandler(BaseHTTPRequestHandler):
             file_path = (WEB_DIR / safe_path).resolve()
             if not str(file_path).startswith(str(WEB_DIR.resolve())):
                 self._send(
-                    *_json_response({"error": "禁止访问"}, HTTPStatus.FORBIDDEN),
+                    *_json_response({"error": "Forbidden"}, HTTPStatus.FORBIDDEN),
                     include_body=include_body,
                 )
                 return
 
         if not file_path.exists() or not file_path.is_file():
             self._send(
-                *_json_response({"error": "文件不存在"}, HTTPStatus.NOT_FOUND),
+                *_json_response({"error": "File not found"}, HTTPStatus.NOT_FOUND),
                 include_body=include_body,
             )
             return
@@ -460,13 +461,13 @@ class WebHandler(BaseHTTPRequestHandler):
         # 先 resolve 再比前缀：反过来写的话 "../" 会在解析时逃出目录
         if not str(file_path).startswith(str(media_root)):
             self._send(
-                *_json_response({"error": "禁止访问"}, HTTPStatus.FORBIDDEN),
+                *_json_response({"error": "Forbidden"}, HTTPStatus.FORBIDDEN),
                 include_body=include_body,
             )
             return
         if not file_path.exists() or not file_path.is_file():
             self._send(
-                *_json_response({"error": "文件不存在"}, HTTPStatus.NOT_FOUND),
+                *_json_response({"error": "File not found"}, HTTPStatus.NOT_FOUND),
                 include_body=include_body,
             )
             return
@@ -483,13 +484,13 @@ class WebHandler(BaseHTTPRequestHandler):
         file_path = (media_root / safe_path).resolve()
         if not str(file_path).startswith(str(media_root)):
             self._send(
-                *_json_response({"error": "禁止访问"}, HTTPStatus.FORBIDDEN),
+                *_json_response({"error": "Forbidden"}, HTTPStatus.FORBIDDEN),
                 include_body=include_body,
             )
             return
         if not file_path.exists() or not file_path.is_file():
             self._send(
-                *_json_response({"error": "文件不存在"}, HTTPStatus.NOT_FOUND),
+                *_json_response({"error": "File not found"}, HTTPStatus.NOT_FOUND),
                 include_body=include_body,
             )
             return
@@ -570,18 +571,18 @@ def _showcase_payload() -> dict[str, Any]:
         "sections": [
             {
                 "key": "running",
-                "title": "运动数据",
-                "description": "COROS MCP、PB、FIT 归档与路线图。",
+                "title": "Running data",
+                "description": "COROS MCP, PBs, FIT archives, and route maps.",
                 "items": [
                     {
-                        "title": "COROS FIT 原始文件",
-                        "meta": f"已归档 {len(fit_files)} 个 FIT 文件",
-                        "prompt": "列出我最近 90 天的运动记录",
+                        "title": "Raw COROS FIT files",
+                        "meta": f"{len(fit_files)} FIT files archived",
+                        "prompt": "List my COROS activities from the last 90 days",
                     },
                     {
-                        "title": "路线图素材",
-                        "meta": f"已生成 {len(route_maps)} 张路线图",
-                        "prompt": "查我的个人 PB",
+                        "title": "Route map assets",
+                        "meta": f"{len(route_maps)} route maps generated",
+                        "prompt": "Show my personal bests",
                     },
                     *personal_bests,
                 ],
@@ -614,15 +615,15 @@ def _showcase_photos() -> list[dict[str, str]]:
                     )
                 except ValueError:
                     image_url = ""
-        event = str(record.get("event") or "未命名照片")
-        race_date = str(record.get("race_date") or "日期未补充")
-        result = str(record.get("result") or "成绩未补充")
+        event = str(record.get("event") or "Untitled photos")
+        race_date = str(record.get("race_date") or "Date missing")
+        result = str(record.get("result") or "Result missing")
         photo_count = len(files) if isinstance(files, list) else 0
         items.append(
             {
                 "title": event,
-                "meta": f"{race_date} · {result} · {photo_count} 张",
-                "prompt": f"查{event}照片",
+                "meta": f"{race_date} · {result} · {photo_count} photos",
+                "prompt": f"Show photos for {event}",
                 "image": image_url,
             }
         )
@@ -644,12 +645,12 @@ def _showcase_personal_bests() -> list[dict[str, str]]:
         return []
 
     labels = {
-        "1k": "1 公里 PB",
-        "3k": "3 公里 PB",
-        "5k": "5 公里 PB",
-        "10k": "10 公里 PB",
-        "half_marathon": "半马 PB",
-        "marathon": "全马 PB",
+        "1k": "1K PB",
+        "3k": "3K PB",
+        "5k": "5K PB",
+        "10k": "10K PB",
+        "half_marathon": "Half marathon PB",
+        "marathon": "Marathon PB",
     }
     items = []
     for key, label in labels.items():
@@ -659,8 +660,8 @@ def _showcase_personal_bests() -> list[dict[str, str]]:
         items.append(
             {
                 "title": label,
-                "meta": f"{record.get('time', '-')} · {record.get('date') or '日期未知'}",
-                "prompt": "查我的个人 PB",
+                "meta": f"{record.get('time', '-')} · {record.get('date') or 'Unknown date'}",
+                "prompt": "Show my personal bests",
             }
         )
     return items
@@ -689,9 +690,9 @@ def _data_payload() -> dict[str, Any]:
     }
     return {
         "summary": [
-            {"label": "数据模块", "value": str(counts["sections"]), "detail": "个人只读资料库"},
-            {"label": "知识块", "value": str(counts["knowledge_chunks"]), "detail": "书籍与视频 RAG"},
-            {"label": "FIT 文件", "value": str(counts["fit_files"]), "detail": "COROS 原始运动归档"},
+            {"label": "Data modules", "value": str(counts["sections"]), "detail": "Read-only personal data"},
+            {"label": "Knowledge chunks", "value": str(counts["knowledge_chunks"]), "detail": "Books and video RAG"},
+            {"label": "FIT files", "value": str(counts["fit_files"]), "detail": "Raw COROS archive"},
         ],
         "sections": sections,
     }
@@ -709,11 +710,11 @@ def _data_profile_section(coros_memory: dict[str, Any]) -> dict[str, Any]:
             ]
             items.append(
                 {
-                    "title": "当前能力画像",
-                    "meta": "长期记忆 · 用户确认过的稳定信息",
-                    "description": "用于训练计划、成绩瓶颈分析和追问判断。",
+                    "title": "Current fitness profile",
+                    "meta": "Long-term memory · user-confirmed stable facts",
+                    "description": "Used for training plans, performance bottleneck analysis, and follow-up questions.",
                     "facts": facts,
-                    "prompt": "根据我的当前能力，制定一份训练计划",
+                    "prompt": "Use my current fitness to build a training plan",
                 }
             )
         goals = profile.get("goals")
@@ -730,43 +731,43 @@ def _data_profile_section(coros_memory: dict[str, Any]) -> dict[str, Any]:
                 if goal_key in seen_goals:
                     continue
                 seen_goals.add(goal_key)
-                target = goal.get("target_time") or "目标成绩未填写"
-                target_date = goal.get("target_date") or "目标日期未填写"
+                target = goal.get("target_time") or "Target time missing"
+                target_date = goal.get("target_date") or "Target date missing"
                 items.append(
                     {
-                        "title": f"{_race_label(str(goal.get('distance') or 'race'))}目标",
+                        "title": f"{_race_label(str(goal.get('distance') or 'race'))} goal",
                         "meta": f"{target} · {target_date}",
-                        "description": "目标信息会影响训练周期、长距离安排和强度比例。",
-                        "prompt": "根据我的目标，帮我安排接下来的训练周期",
+                        "description": "Goal data affects training cycle length, long-run planning, and intensity distribution.",
+                        "prompt": "Use my goal to plan the next training block",
                     }
                 )
 
     if not items:
         items.append(
             {
-                "title": "运动画像待补充",
-                "meta": "暂无稳定画像",
-                "description": "在 Discord 或网页对话里补充年龄、身高体重、近期周跑量、目标比赛后，会进入长期记忆。",
-                "prompt": "帮我建立跑步长期画像",
+                "title": "Running profile is incomplete",
+                "meta": "No stable profile yet",
+                "description": "Add age, height, weight, recent weekly mileage, and target races through Discord or chat; they will become long-term memory.",
+                "prompt": "Help me build my running profile",
             }
         )
 
     return {
         "key": "profile",
-        "title": "运动画像",
-        "description": "长期稳定信息，给训练计划和报告提供背景。",
+        "title": "Running profile",
+        "description": "Stable long-term context for training plans and reports.",
         "items": items,
     }
 
 
 def _data_personal_bests_section(coros_memory: dict[str, Any]) -> dict[str, Any]:
     labels = {
-        "1k": "1 公里",
-        "3k": "3 公里",
-        "5k": "5 公里",
-        "10k": "10 公里",
-        "half_marathon": "半马",
-        "marathon": "全马",
+        "1k": "1K",
+        "3k": "3K",
+        "5k": "5K",
+        "10k": "10K",
+        "half_marathon": "Half marathon",
+        "marathon": "Marathon",
     }
     personal_bests = coros_memory.get("personal_bests")
     if not isinstance(personal_bests, dict):
@@ -777,8 +778,8 @@ def _data_personal_bests_section(coros_memory: dict[str, Any]) -> dict[str, Any]
         record = personal_bests.get(key)
         if isinstance(record, dict):
             value = str(record.get("time") or "-")
-            date = str(record.get("date") or "日期未知")
-            source = str(record.get("source") or "COROS 自动识别")
+            date = str(record.get("date") or "Unknown date")
+            source = str(record.get("source") or "Auto-detected from COROS")
             items.append(
                 {
                     "title": label,
@@ -786,27 +787,27 @@ def _data_personal_bests_section(coros_memory: dict[str, Any]) -> dict[str, Any]
                     "description": source,
                     "state": "ready",
                     "facts": [
-                        {"label": "成绩", "value": value},
-                        {"label": "日期", "value": date},
+                        {"label": "Time", "value": value},
+                        {"label": "Date", "value": date},
                     ],
-                    "prompt": "查我的个人 PB",
+                    "prompt": "Show my personal bests",
                 }
             )
         else:
             items.append(
                 {
                     "title": label,
-                    "meta": "尚未自动识别",
-                    "description": "PB 只能由 COROS 运动详情自动更新，网页和聊天都不能手动改。",
+                    "meta": "Not detected yet",
+                    "description": "PBs can only be updated automatically from COROS activity details. They cannot be manually edited from web or chat.",
                     "state": "empty",
-                    "prompt": "查我的个人 PB",
+                    "prompt": "Show my personal bests",
                 }
             )
 
     return {
         "key": "personal-bests",
-        "title": "个人 PB",
-        "description": "只读永久记忆；检测到更好成绩时自动覆盖。",
+        "title": "Personal bests",
+        "description": "Read-only permanent memory; better results overwrite older PBs automatically.",
         "items": items,
     }
 
@@ -834,7 +835,7 @@ def _video_header(path: Path) -> dict[str, str]:
     return fields
 
 
-CATEGORY_LABELS = {"shoes": "跑鞋装备", "training": "训练理论"}
+CATEGORY_LABELS = {"shoes": "Shoe reviews", "training": "Training theory"}
 
 
 def _subscription_progress() -> dict[str, dict[str, Any]]:
@@ -890,24 +891,24 @@ def _knowledge_tree() -> list[dict[str, Any]]:
 
     for file_path in sorted((base / "books").rglob("*.pdf")):
         category = _knowledge_category(file_path, base / "books")
-        buckets.setdefault(category, {}).setdefault("书籍", []).append(
+        buckets.setdefault(category, {}).setdefault("Books", []).append(
             {
                 "title": file_path.stem,
                 "meta": f"PDF · {_file_size(file_path)}",
-                "prompt": f"根据《{file_path.stem}》回答我的训练问题",
+                "prompt": f"Use {file_path.stem} to answer my training question",
             }
         )
 
     for file_path in sorted((base / "videos").rglob("*.md")):
         category = _knowledge_category(file_path, base / "videos")
         header = _video_header(file_path)
-        uploader = header.get("Uploader") or "未标注来源"
+        uploader = header.get("Uploader") or "Unlabeled source"
         buckets.setdefault(category, {}).setdefault(uploader, []).append(
             {
                 "title": header.get("Title") or file_path.stem,
                 "meta": f"{header.get('Source', '')} · {_file_size(file_path)}",
                 "imported_at": header.get("Imported at", ""),
-                "prompt": f"根据「{header.get('Title') or file_path.stem}」这条内容回答我",
+                "prompt": f"Use {header.get('Title') or file_path.stem} to answer my question",
             }
         )
 
@@ -988,27 +989,27 @@ def _data_photos_section() -> dict[str, Any]:
                         )
                     except ValueError:
                         continue
-            event = str(record.get("event") or "未命名照片")
-            race_date = str(record.get("race_date") or "日期未补充")
-            result = str(record.get("result") or "成绩未补充")
+            event = str(record.get("event") or "Untitled photos")
+            race_date = str(record.get("race_date") or "Date missing")
+            result = str(record.get("result") or "Result missing")
             items.append(
                 {
                     "title": event,
-                    "meta": f"{race_date} · {result} · {len(image_urls)} 张",
-                    "description": str(record.get("notes") or "从 Discord 上传并归档的照片记忆。"),
+                    "meta": f"{race_date} · {result} · {len(image_urls)} photos",
+                    "description": str(record.get("notes") or "Photo memory uploaded and archived from Discord."),
                     "images": image_urls,
                     "facts": [
-                        {"label": "比赛日期", "value": race_date},
-                        {"label": "成绩", "value": result},
+                        {"label": "Race date", "value": race_date},
+                        {"label": "Result", "value": result},
                     ],
-                    "prompt": f"查{event}照片",
+                    "prompt": f"Show photos for {event}",
                 }
             )
 
     return {
         "key": "photos",
-        "title": "照片记忆",
-        "description": "比赛照片、日期、成绩和说明。写入只在 Discord 开放。",
+        "title": "Photo memory",
+        "description": "Race photos, dates, results, and notes. Writes are only enabled in Discord.",
         "items": items,
     }
 
@@ -1033,35 +1034,35 @@ def _data_rag_section() -> dict[str, Any]:
             overlap = str(config.get("chunk_overlap") or "-")
         items.append(
             {
-                "title": "RAG 切分索引",
-                "meta": f"{chunks_count} 个 chunk · {build_info.get('built_at', '构建时间未知')}",
-                "description": "保存书籍和视频的切分结果，用于检索候选原文。",
+                "title": "RAG chunk index",
+                "meta": f"{chunks_count} chunks · {build_info.get('built_at', 'Unknown build time')}",
+                "description": "Stores chunks from books and videos for evidence retrieval.",
                 "facts": [
                     {"label": "chunk_size", "value": chunk_size},
                     {"label": "overlap", "value": overlap},
                 ],
-                "prompt": "解释一下我的 RAG 知识库里有什么",
+                "prompt": "Explain what is inside my RAG knowledge base",
             }
         )
 
     if isinstance(embeddings, dict):
         items.append(
             {
-                "title": "Embedding 向量库",
-                "meta": f"{embeddings.get('model', '模型未知')} · {embeddings.get('chunk_count', chunks_count)} 个主块",
-                "description": "先用向量找相近知识块，再交给 LLM 生成答案和引用。",
+                "title": "Embedding vector store",
+                "meta": f"{embeddings.get('model', 'Unknown model')} · {embeddings.get('chunk_count', chunks_count)} parent chunks",
+                "description": "Finds similar knowledge chunks with vectors before the LLM writes an answer with citations.",
                 "facts": [
                     {"label": "child vectors", "value": str(embeddings.get("child_count") or "-")},
                     {"label": "model", "value": str(embeddings.get("model") or "-")},
                 ],
-                "prompt": "我的 RAG 是怎么检索答案的？",
+                "prompt": "How does my RAG pipeline retrieve answers?",
             }
         )
 
     return {
         "key": "rag",
-        "title": "RAG 知识库",
-        "description": "跑步书籍、视频字幕、chunk 和 embedding。",
+        "title": "RAG knowledge base",
+        "description": "Running books, video subtitles, chunks, and embeddings.",
         "tree": _knowledge_tree(),
         "items": items,
     }
@@ -1075,27 +1076,27 @@ def _data_coros_archive_section(coros_memory: dict[str, Any]) -> dict[str, Any]:
 
     latest = coros_memory.get("latest_reported_activity")
     if isinstance(latest, dict):
-        title = str(latest.get("name") or latest.get("sportType") or "最近已报告运动")
+        title = str(latest.get("name") or latest.get("sportType") or "Latest reported activity")
         distance = latest.get("distance")
         distance_text = f"{float(distance) / 1000:.2f} km" if isinstance(distance, (int, float)) else "-"
         items.append(
             {
                 "title": title,
-                "meta": f"{latest.get('startTime') or latest.get('date') or '日期未知'} · {distance_text}",
-                "description": "自动报告会用它判断最近运动是否已经发送过。",
-                "prompt": "根据最近一次运动生成报告",
+                "meta": f"{latest.get('startTime') or latest.get('date') or 'Unknown date'} · {distance_text}",
+                "description": "Auto-reporting uses this record to decide whether the latest activity has already been sent.",
+                "prompt": "Generate a report from my latest activity",
             }
         )
 
     items.append(
         {
-            "title": "FIT 原始文件归档",
-            "meta": f"{len(fit_files)} 个文件 · {_total_size(fit_files)}",
-            "description": "每天同步 COROS 原始运动记录，后续可用于轨迹、分段和地图生成。",
+            "title": "Raw FIT archive",
+            "meta": f"{len(fit_files)} files · {_total_size(fit_files)}",
+            "description": "Raw COROS activity files are synced locally and can be used later for routes, splits, and maps.",
             "facts": [
-                {"label": "最近文件", "value": fit_files[-1].name if fit_files else "暂无"},
+                {"label": "Latest file", "value": fit_files[-1].name if fit_files else "None yet"},
             ],
-            "prompt": "列出我最近 90 天的运动记录",
+            "prompt": "List my COROS activities from the last 90 days",
         }
     )
 
@@ -1103,20 +1104,20 @@ def _data_coros_archive_section(coros_memory: dict[str, Any]) -> dict[str, Any]:
         items.append(
             {
                 "title": file_path.stem,
-                "meta": f"路线图 · {_file_size(file_path)}",
-                "description": "室外跑步有 GPS 时自动生成路线图。",
+                "meta": f"Route map · {_file_size(file_path)}",
+                "description": "Generated automatically for outdoor runs with GPS data.",
                 "images": [
                     "/media/coros-route-maps/"
                     + quote(file_path.relative_to(route_root).as_posix(), safe="/")
                 ],
-                "prompt": "查看这次室外跑步路线",
+                "prompt": "Show this outdoor running route",
             }
         )
 
     return {
         "key": "coros",
-        "title": "COROS 数据",
-        "description": "运动记录、FIT 原始文件和路线图素材。",
+        "title": "COROS data",
+        "description": "Activities, raw FIT files, and route map assets.",
         "items": items,
     }
 
@@ -1136,13 +1137,13 @@ def _json_count(path: Path) -> int:
 
 def _race_label(key: str) -> str:
     return {
-        "1k": "1 公里",
-        "3k": "3 公里",
-        "5k": "5 公里",
-        "10k": "10 公里",
-        "half_marathon": "半马",
-        "marathon": "全马",
-        "race": "比赛",
+        "1k": "1K",
+        "3k": "3K",
+        "5k": "5K",
+        "10k": "10K",
+        "half_marathon": "Half marathon",
+        "marathon": "Marathon",
+        "race": "Race",
     }.get(key, key)
 
 
@@ -1150,7 +1151,7 @@ def _file_size(path: Path) -> str:
     try:
         size = path.stat().st_size
     except OSError:
-        return "大小未知"
+        return "Unknown size"
     if size >= 1024 * 1024:
         return f"{size / 1024 / 1024:.1f} MB"
     if size >= 1024:
@@ -1223,7 +1224,7 @@ def _route_result_payload(route: object | None) -> dict[str, Any]:
     if route is None:
         return {
             "message": "",
-            "capability": "未路由",
+            "capability": "Not routed",
             "confidence": 0.0,
             "tools": (),
             "graph_steps": (),
@@ -1255,34 +1256,34 @@ def _capability_label(command_name: str) -> str:
         "feel",
         "feelings",
     }:
-        return "跑步教练"
+        return "Running coach"
     return command_name
 
 
 def _tools_for_command(command_name: str) -> tuple[str, ...]:
     if command_name == "running":
-        return ("RAG 检索", "Embedding", "长期记忆", "DeepSeek")
+        return ("RAG retrieval", "Embedding", "Long-term memory", "DeepSeek")
     if command_name == "running-video":
-        return ("B 站字幕抓取", "知识库切分", "Embedding")
+        return ("Bilibili subtitle fetch", "Knowledge chunking", "Embedding")
     if command_name in {"coros-tools", "coros-list", "coros-activity", "coros-pb"}:
         return ("COROS MCP",)
-    return ("COROS MCP", "LangGraph", "RAG 检索", "长期记忆")
+    return ("COROS MCP", "LangGraph", "RAG retrieval", "Long-term memory")
 
 
 def _steps_for_command(command_name: str) -> tuple[str, ...]:
     if command_name == "running":
-        return ("自然语言路由", "更新训练画像", "检索知识库", "生成训练建议")
+        return ("Natural-language routing", "Update running profile", "Retrieve knowledge", "Generate training advice")
     if command_name == "running-video":
-        return ("自然语言路由", "抓取字幕", "切分知识", "写入知识库")
+        return ("Natural-language routing", "Fetch subtitles", "Chunk knowledge", "Write knowledge base")
     if command_name == "coros-tools":
-        return ("自然语言路由", "连接 COROS MCP", "读取工具列表")
+        return ("Natural-language routing", "Connect COROS MCP", "Read tool list")
     if command_name == "coros-list":
-        return ("自然语言路由", "查询运动摘要", "缓存可选列表")
+        return ("Natural-language routing", "Query activity summaries", "Cache selectable list")
     if command_name == "coros-activity":
-        return ("自然语言路由", "读取所选记录", "拉取详情", "生成报告")
+        return ("Natural-language routing", "Read selected record", "Fetch details", "Generate report")
     if command_name == "coros-pb":
-        return ("自然语言路由", "读取 PB 记忆", "返回只读表格")
-    return ("自然语言路由", "LangGraph 编排", "读取 COROS 数据", "生成报告")
+        return ("Natural-language routing", "Read PB memory", "Return read-only table")
+    return ("Natural-language routing", "LangGraph workflow", "Read COROS data", "Generate report")
 
 
 async def _stream_real_chat(
@@ -1294,7 +1295,7 @@ async def _stream_real_chat(
     from src.orchestrator import get_orchestrator
 
     channel = WebChannel(emit, conversation_id)
-    emit({"type": "status", "message": "正在调用真实 Agent..."})
+    emit({"type": "status", "message": "Calling the real agent..."})
     route = await get_orchestrator().dispatch_web_text(
         None,
         channel,
@@ -1335,12 +1336,12 @@ def run(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
     load_dotenv(ROOT_DIR / ".env")
     _ensure_agent_paths()
     httpd = ThreadingHTTPServer((host, port), WebHandler)
-    print(f"COROS Running Agent 控制台运行中：http://{host}:{port}", flush=True)
+    print(f"COROS Running Agent web console running at http://{host}:{port}", flush=True)
     httpd.serve_forever()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="运行 COROS Running Agent 控制台。")
+    parser = argparse.ArgumentParser(description="Run the COROS Running Agent web console.")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     args = parser.parse_args()

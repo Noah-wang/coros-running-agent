@@ -12,20 +12,20 @@ from typing import Any
 
 # 模块 id → 展示名。id 同时是 SVG 里节点的 data-module 值。
 MODULES: dict[str, str] = {
-    "entry": "入口",
-    "router": "路由",
-    "loop": "主 Agent 循环",
-    "capability": "能力层",
+    "entry": "Input",
+    "router": "Router",
+    "loop": "Main agent loop",
+    "capability": "Capability layer",
     "langgraph": "LangGraph",
-    "races": "比赛照片",
-    "coros": "COROS 运动数据",
-    "profile": "长期档案",
-    "knowledge": "RAG 知识库",
-    "search": "联网搜索",
-    "observation": "工具返回",
-    "llm": "LLM 生成",
-    "reflection": "反思检查",
-    "answer": "生成回答",
+    "races": "Race photos",
+    "coros": "COROS data",
+    "profile": "Long-term profile",
+    "knowledge": "RAG knowledge",
+    "search": "Web search",
+    "observation": "Tool result",
+    "llm": "LLM generation",
+    "reflection": "Reflection check",
+    "answer": "Answer",
 }
 
 # 工具名 → 模块 id。没列出的工具归到 loop，不额外画节点。

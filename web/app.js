@@ -16,13 +16,13 @@ const flowHint = document.querySelector("#flowHint");
 const ACTIVE_SESSION_KEY = "coros-running-agent-active-session";
 const CONVERSATIONS_KEY = "coros-running-agent-conversations-v1";
 const FALLBACK_ACTIONS = [
-  { title: "查最近 90 天运动记录", prompt: "列出我最近 90 天的运动记录" },
-  { title: "列出全部比赛照片", prompt: "查看我保存过的所有比赛照片" },
-  { title: "查最近一次训练报告", prompt: "我今天这次训练怎么样？下一次应该怎么练？" },
-  { title: "查个人 PB", prompt: "查我的个人 PB" },
-  { title: "查成绩瓶颈", prompt: "我现在半马 1:40，全马 4:30，想提高全马成绩，应该加强哪部分训练？" },
-  { title: "查跑步知识库", prompt: "根据已导入的跑步书籍，解释我当前成绩瓶颈" },
-  { title: "制定训练计划", prompt: "根据我的当前能力和知识库，制定一份全马训练计划" },
+  { title: "List my last 90 days", prompt: "List my COROS activities from the last 90 days" },
+  { title: "Show saved race photos", prompt: "Show all race photos I have saved" },
+  { title: "Review my latest workout", prompt: "How was my latest workout, and what should I do next?" },
+  { title: "Show my PBs", prompt: "Show my personal bests" },
+  { title: "Find my marathon bottleneck", prompt: "My half marathon is 1:40 and my marathon is 4:30. What should I improve?" },
+  { title: "Search running knowledge", prompt: "Use my imported running books to explain my current performance bottleneck" },
+  { title: "Build a training plan", prompt: "Use my current fitness and knowledge base to build a marathon training plan" },
 ];
 
 let busy = false;
@@ -45,7 +45,7 @@ function emptyConversation() {
   const now = new Date().toISOString();
   return {
     id: newSessionId(),
-    title: "当前对话",
+    title: "Current chat",
     createdAt: now,
     updatedAt: now,
     messages: [],
@@ -117,8 +117,8 @@ function appendStoredMessage(role, text) {
   updateActiveConversation((conversation) => {
     const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
     conversation.messages = [...messages, { role, text }];
-    if (role === "user" && ["新对话", "当前对话"].includes(conversation.title)) {
-      conversation.title = text.slice(0, 26) || "当前对话";
+    if (role === "user" && ["新对话", "当前对话", "New chat", "Current chat"].includes(conversation.title)) {
+      conversation.title = text.slice(0, 26) || "Current chat";
     }
   });
 }
@@ -165,10 +165,10 @@ function renderConversationList() {
       <span class="conversation-title"></span>
       <span class="conversation-meta"></span>
     `;
-    const title = conversation.title === "新对话" ? "当前对话" : conversation.title;
-    button.querySelector(".conversation-title").textContent = title || "当前对话";
+    const title = ["新对话", "当前对话"].includes(conversation.title) ? "Current chat" : conversation.title;
+    button.querySelector(".conversation-title").textContent = title || "Current chat";
     const count = Array.isArray(conversation.messages) ? conversation.messages.length : 0;
-    button.querySelector(".conversation-meta").textContent = count ? `${count} 条消息` : "空白对话";
+    button.querySelector(".conversation-meta").textContent = count ? `${count} messages` : "Empty chat";
     button.addEventListener("click", () => switchConversation(conversation.id));
     conversationListEl.appendChild(button);
   }
@@ -229,7 +229,7 @@ function appendImages(urls, caption) {
   if (caption) {
     const title = document.createElement("p");
     title.className = "photo-caption";
-    title.textContent = `${caption} · ${urls.length} 张`;
+    title.textContent = `${caption} · ${urls.length} images`;
     bubble.appendChild(title);
   }
 
@@ -243,7 +243,7 @@ function appendImages(urls, caption) {
     const img = document.createElement("img");
     img.src = url;
     img.loading = "lazy";
-    img.alt = caption || "比赛照片";
+    img.alt = caption || "Race photo";
     link.appendChild(img);
     grid.appendChild(link);
   }
@@ -259,7 +259,7 @@ function flowReset() {
   flowQueue = [];
   flowPlaying = false;
   lastFlowModule = null;
-  if (flowHint) flowHint.textContent = "提问后节点会在图上亮起";
+  if (flowHint) flowHint.textContent = "Nodes light up after you ask";
 }
 
 // 只有「当前步」是高亮的，之前走过的降级成 is-done。
@@ -325,13 +325,13 @@ function flowStep(module, hint) {
   const queuedLast = flowQueue.at(-1)?.module || lastFlowModule;
   if (module === "answer" && queuedLast && queuedLast !== "reflection") {
     if (queuedLast !== "llm") {
-      enqueueFlowStep("llm", "工具返回结果交给 LLM 生成回答");
+      enqueueFlowStep("llm", "Tool results are passed to the LLM");
     }
-    enqueueFlowStep("reflection", "检查回答是否还需要补充检索");
+    enqueueFlowStep("reflection", "Check whether the answer needs more evidence");
   }
   enqueueFlowStep(module, hint);
   if (OBSERVATION_SOURCES.has(module)) {
-    enqueueFlowStep("observation", "工具返回结果作为 observation 回灌");
+    enqueueFlowStep("observation", "Tool result is fed back as an observation");
   }
   playFlowQueue();
 }
@@ -372,7 +372,7 @@ function hideThinking() {
 }
 
 function isProgressNotice(text) {
-  return /^正在[^\n]{0,36}$/.test(text.trim());
+  return /^(正在[^\n]{0,36}|[A-Z][^\n]{0,48}\.\.\.)$/.test(text.trim());
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 16));
@@ -426,7 +426,7 @@ async function streamChat(message) {
   });
 
   if (!response.ok || !response.body) {
-    let errorMessage = "请求失败";
+    let errorMessage = "Request failed";
     try {
       const result = await response.json();
       errorMessage = result.error || errorMessage;
@@ -470,10 +470,10 @@ async function streamChat(message) {
       } else if (event.type === "trace_step") {
         flowStep(event.module, event.why || event.label || "");
       } else if (event.type === "status") {
-        showThinking(event.message || "思考中");
+        showThinking(event.message || "Thinking");
       } else if (event.type === "error") {
         hideThinking();
-        appendMessage("error", `出错了：${event.error || "未知错误"}`);
+        appendMessage("error", `Error: ${event.error || "Unknown error"}`);
       }
     }
   }
@@ -501,14 +501,14 @@ async function submitMessage(message) {
   input.value = "";
   autoGrow();
   setBusy(true);
-  showThinking("思考中");
+  showThinking("Thinking");
   flowReset();
-  flowStep("entry", "收到问题，交给主 Agent");
+  flowStep("entry", "Received the question and sent it to the main agent");
 
   try {
     await streamChat(message);
   } catch (error) {
-    appendMessage("error", `出错了：${error.message}`);
+    appendMessage("error", `Error: ${error.message}`);
   } finally {
     hideThinking();
     flowSettle();
@@ -556,7 +556,7 @@ function eventNameFromText(text) {
   const match = text.match(
     /([\u4e00-\u9fa5A-Za-z0-9\s]{2,18}(?:马拉松|半马|全马|越野跑|越野赛|路跑))/
   );
-  return match ? match[1].trim() : "这场比赛";
+  return match ? match[1].trim() : "this race";
 }
 
 function contextualActionsFor(userText, agentText = "") {
@@ -566,57 +566,57 @@ function contextualActionsFor(userText, agentText = "") {
   if (/(照片|相册|图片|photo)|找到\s*\d+\s*组照片/.test(combined)) {
     const eventName = eventNameFromText(combined);
     return [
-      action("根据这场比赛生成报告", `根据${eventName}照片对应的运动记录生成一下报告`),
-      action("查对应运动记录", `根据${eventName}的比赛日期，查一下对应的运动记录`),
-      action("查看照片数据", `查看${eventName}照片保存了哪些信息`),
-      action("列出全部照片", "查看我保存过的所有比赛照片"),
+      action("Generate a race report", `Find the workout record that matches ${eventName} and generate a report`),
+      action("Find the matching workout", `Use the race date for ${eventName} to find the matching COROS activity`),
+      action("Show photo metadata", `Show what metadata is saved for ${eventName}`),
+      action("List all photos", "Show all race photos I have saved"),
     ];
   }
 
   if (/运动记录|历史运动|记录列表|coros|activity|查到\s*最近/.test(text)) {
     return [
-      action("分析第 1 条", "分析第 1 条运动记录"),
-      action("重点看后半程", "分析第 1 条运动记录，重点看后半程心率和配速"),
-      action("生成训练建议", "根据最近这条运动记录，告诉我下一次应该怎么练"),
-      action("查个人 PB", "查我的个人 PB"),
+      action("Analyze item 1", "Analyze activity 1"),
+      action("Check the second half", "Analyze activity 1, focusing on second-half heart rate and pace"),
+      action("Suggest next workout", "Based on the latest activity, tell me what I should do next"),
+      action("Show my PBs", "Show my personal bests"),
     ];
   }
 
   // 跑鞋：知识库里现在有测评内容，问完一双自然会想比较、想结合自己水平
   if (/跑鞋|碳板|缓震|中底|竞速鞋|训练鞋|穿什么鞋|选鞋|测评/.test(combined)) {
     return [
-      action("结合我的水平推荐", "根据我的实际配速和周跑量，这双鞋适合我吗？还有更合适的吗"),
-      action("对比另一双", "把知识库里几双同价位的碳板鞋对比一下"),
-      action("比赛日怎么选", "我下一场比赛该穿哪双？考虑距离和我的完赛时间"),
-      action("看有哪些测评", "知识库里一共有哪些跑鞋测评？"),
+      action("Match shoes to my level", "Based on my pace and weekly mileage, is this shoe a good fit? What else should I consider?"),
+      action("Compare similar shoes", "Compare a few carbon-plated shoes from the knowledge base in the same price range"),
+      action("Race-day choice", "Which shoe should I wear for my next race, considering the race distance and target time?"),
+      action("Show shoe reviews", "What shoe reviews are currently in the knowledge base?"),
     ];
   }
 
   // 订阅：加完一个来源，接着会想确认状态和进度
   if (/订阅|up主|知识来源|space\.bilibili|导入.*视频|知识库.*添加/.test(combined)) {
     return [
-      action("查看当前订阅", "我订阅了哪些知识来源？"),
-      action("看知识库有什么", "我的跑步知识库里现在有哪些内容？"),
-      action("按分类查跑鞋", "从跑鞋测评里挑一双适合我日常训练的"),
-      action("按分类查训练", "从训练理论里讲讲阈值跑该怎么练"),
+      action("Show subscriptions", "What knowledge sources am I subscribed to?"),
+      action("Inspect knowledge base", "What is currently in my running knowledge base?"),
+      action("Find daily trainer shoes", "Pick a daily trainer from the shoe reviews in my knowledge base"),
+      action("Explain threshold runs", "Use the training theory knowledge to explain how to train threshold runs"),
     ];
   }
 
   if (/\bpb\b|个人最好|最好成绩|最好记录|半马|全马|成绩瓶颈/.test(text)) {
     return [
-      action("制定全马训练计划", "根据我的半马和全马水平，制定一份全马训练计划"),
-      action("分析成绩短板", "我现在半马 1:40，全马 4:30，应该加强哪部分训练？"),
-      action("查跑步知识库", "根据已导入的跑步书籍，解释我当前成绩瓶颈"),
-      action("列出最近运动", "列出我最近 90 天的运动记录"),
+      action("Build marathon plan", "Use my half-marathon and marathon level to build a marathon training plan"),
+      action("Analyze performance gap", "My half marathon is 1:40 and my marathon is 4:30. What should I improve?"),
+      action("Use running knowledge", "Use my imported running books to explain my current performance bottleneck"),
+      action("List recent activities", "List my COROS activities from the last 90 days"),
     ];
   }
 
   if (/rag|知识库|书籍|视频|训练计划|丹尼尔斯|跑步书/.test(text)) {
     return [
-      action("引用原文回答", "根据跑步知识库，引用原文回答我的训练问题"),
-      action("制定训练计划", "根据我的当前能力和知识库，制定一份训练计划"),
-      action("解释训练原则", "根据已导入的跑步书籍，解释长距离训练怎么安排"),
-      action("查看知识库数据", "解释一下我的 RAG 知识库里有什么"),
+      action("Answer with citations", "Use the running knowledge base and cite original passages"),
+      action("Build a training plan", "Use my current fitness and knowledge base to build a training plan"),
+      action("Explain training principles", "Use the imported running books to explain how to schedule long runs"),
+      action("Inspect RAG data", "Explain what is inside my RAG knowledge base"),
     ];
   }
 

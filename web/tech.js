@@ -12,7 +12,7 @@ function renderTabs() {
     const button = document.createElement("button");
     button.type = "button";
     button.role = "tab";
-    button.textContent = `${tab.title}（${tab.items.length}）`;
+    button.textContent = `${tab.title} (${tab.items.length})`;
     button.className = index === state.activeTab ? "active" : "";
     button.setAttribute("aria-selected", String(index === state.activeTab));
     button.addEventListener("click", () => {
@@ -47,7 +47,7 @@ function renderBody() {
   const tab = state.tabs[state.activeTab];
   const item = tab?.items[state.activeItem];
   if (!item) {
-    bodyEl.innerHTML = "<p class='empty'>这一部分暂时没有内容。</p>";
+    bodyEl.innerHTML = "<p class='empty'>Nothing to show here yet.</p>";
     return;
   }
   bodyEl.innerHTML = `<h2>${item.title}</h2>${renderMarkdown(item.body)}`;
@@ -62,16 +62,16 @@ function render() {
 async function load() {
   try {
     const response = await fetch("/api/tech");
-    if (!response.ok) throw new Error("加载失败");
+    if (!response.ok) throw new Error("Failed to load");
     const payload = await response.json();
     state.tabs = (payload.tabs || []).filter((tab) => tab.items?.length);
     if (!state.tabs.length) {
-      bodyEl.innerHTML = "<p class='empty'>暂时没有可展示的内容。</p>";
+      bodyEl.innerHTML = "<p class='empty'>Nothing to show yet.</p>";
       return;
     }
     render();
   } catch (error) {
-    bodyEl.innerHTML = `<p class='empty'>加载失败：${error.message}</p>`;
+    bodyEl.innerHTML = `<p class='empty'>Failed to load: ${error.message}</p>`;
   }
 }
 
