@@ -1,0 +1,13 @@
+[Unit]
+Description=Run COROS Running Agent bilibili sync every 30 minutes
+
+[Timer]
+# 每半小时一轮。单轮只抓 8 条（约 32 秒），剩下 29 分钟全是静默期，
+# 平均请求密度比原来「每天一次抓 20 条」还低，但一天能过三百多条。
+# 触发限流时脚本自己写冷静期文件，接下来几轮直接退出，不会每半小时硬撞。
+OnCalendar=*:00,30
+RandomizedDelaySec=180
+Persistent=true
+
+[Install]
+WantedBy=timers.target

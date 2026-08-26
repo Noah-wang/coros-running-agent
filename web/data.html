@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>COROS Running Agent · 数据</title>
+    <link rel="icon" type="image/png" href="/assets/coros-running-agent-avatar.png">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body class="data-page">
+    <header class="topbar">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">
+          <img src="/assets/coros-running-agent-avatar.png" alt="">
+        </span>
+        <h1>COROS Running Agent</h1>
+      </div>
+      <nav class="topnav">
+        <a href="/">对话</a>
+        <a href="/data" class="active" aria-current="page">数据</a>
+        <a href="/tech">技术</a>
+      </nav>
+    </header>
+
+    <main class="data-shell">
+      <section class="data-hero" aria-labelledby="dataTitle">
+        <div>
+          <p class="eyebrow">Personal Agent Data</p>
+          <h2 id="dataTitle">你的 Agent 记忆库</h2>
+          <p>
+            这里集中展示网页可读的数据：PB、跑步知识库、COROS 原始记录和路线图素材。
+            公开网页只读，写入和修改仍通过 Discord 完成。
+          </p>
+        </div>
+        <a class="primary-link" href="/">回到对话</a>
+      </section>
+
+      <section class="metric-strip" id="metricStrip" aria-label="数据概览"></section>
+
+      <nav class="data-tabs" id="dataTabs" aria-label="数据分类"></nav>
+
+      <section class="data-board" id="dataBoard" aria-live="polite"></section>
+    </main>
+
+    <script src="/data.js" type="module"></script>
+  </body>
+</html>

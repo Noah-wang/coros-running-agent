@@ -1,0 +1,10 @@
+# 由 pyproject.toml 的 dependencies 生成，改依赖请改那边。
+apscheduler
+discord.py
+fitdecode>=0.11.0
+langgraph>=1.2.11
+mcp
+numpy
+openai
+pypdf
+python-dotenv

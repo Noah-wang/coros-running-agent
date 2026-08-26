@@ -1,0 +1,14 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+.DS_Store
+
+# 个人数据。整个目录都不进仓库：里面有体重、伤病、比赛成绩、
+# 聊天记录，以及你自己买的电子书。
+data/
+
+# B 站登录态（sessdata / bili_jct）
+agents/*/config.toml
+
+**/.secrets/

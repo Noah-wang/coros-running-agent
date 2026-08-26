@@ -1,0 +1,17 @@
+[Unit]
+Description=COROS Running Agent bilibili knowledge sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/coros-running-agent
+Environment=PATH=/home/ubuntu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# 单次配额不写在这里，用脚本里的 DEFAULT_MAX_VIDEOS（8 条）。
+# 原来这行是 --max-videos 20 配每天一次；改成每半小时一次之后，
+# 靠频次堆吞吐而不是靠单次批量，单轮反而要更小。
+ExecStart=/home/ubuntu/.local/bin/uv run python scripts/sync_bilibili.py
+Restart=no
+TimeoutStartSec=1800
