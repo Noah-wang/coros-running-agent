@@ -12,9 +12,15 @@ const newChatButton = document.querySelector("#newChat");
 const flowNodes = document.querySelectorAll("#flowMap .flow-node");
 const flowEdges = document.querySelectorAll("#flowMap .flow-edge");
 const flowHint = document.querySelector("#flowHint");
+const activityNotice = document.querySelector("#activityNotice");
+const activityNoticeTitle = document.querySelector("#activityNoticeTitle");
+const activityNoticeMeta = document.querySelector("#activityNoticeMeta");
+const activityNoticeDismiss = document.querySelector("#activityNoticeDismiss");
+const activityNoticeInterpret = document.querySelector("#activityNoticeInterpret");
 
 const ACTIVE_SESSION_KEY = "coros-running-agent-active-session";
 const CONVERSATIONS_KEY = "coros-running-agent-conversations-v1";
+const SEEN_ACTIVITY_NOTICE_KEY = "coros-running-agent-seen-activity-notices-v1";
 const FALLBACK_ACTIONS = [
   { title: "List my last 90 days", prompt: "List my COROS activities from the last 90 days" },
   { title: "Show saved race photos", prompt: "Show all race photos I have saved" },
@@ -33,6 +39,7 @@ let contextualActions = null;
 let flowQueue = [];
 let flowPlaying = false;
 let lastFlowModule = null;
+let pendingActivityNotice = null;
 const OBSERVATION_SOURCES = new Set(["coros", "profile", "knowledge", "search"]);
 
 function newSessionId() {
@@ -151,6 +158,51 @@ function switchConversation(id) {
   renderConversation();
   updateSuggestionsFromConversation();
   input.focus();
+}
+
+function seenActivityNotices() {
+  try {
+    const value = JSON.parse(localStorage.getItem(SEEN_ACTIVITY_NOTICE_KEY) || "[]");
+    return Array.isArray(value) ? value.filter(Boolean).slice(-30) : [];
+  } catch {
+    return [];
+  }
+}
+
+function markActivityNoticeSeen(key) {
+  if (!key) return;
+  const next = [...new Set([...seenActivityNotices(), key])].slice(-30);
+  localStorage.setItem(SEEN_ACTIVITY_NOTICE_KEY, JSON.stringify(next));
+}
+
+function hideActivityNotice() {
+  if (!activityNotice) return;
+  activityNotice.hidden = true;
+  pendingActivityNotice = null;
+}
+
+function showActivityNotice(activity) {
+  if (!activityNotice || !activity) return;
+  pendingActivityNotice = activity;
+  activityNoticeTitle.textContent = activity.title || "Completed workout";
+  activityNoticeMeta.textContent = activity.meta || "Ready for AI review";
+  activityNotice.hidden = false;
+}
+
+async function checkActivityNotice() {
+  if (!activityNotice || document.hidden) return;
+  try {
+    const response = await fetch("/api/auto-report/latest");
+    if (!response.ok) return;
+    const payload = await response.json();
+    const activity = payload.activity;
+    if (!payload.pending || !activity?.key || seenActivityNotices().includes(activity.key)) {
+      return;
+    }
+    showActivityNotice(activity);
+  } catch {
+    // The notice is opportunistic. Chat should keep working even if COROS is unavailable.
+  }
 }
 
 function renderConversationList() {
@@ -674,6 +726,20 @@ input.addEventListener("keydown", (event) => {
 
 newChatButton.addEventListener("click", startNewConversation);
 
+activityNoticeDismiss?.addEventListener("click", () => {
+  markActivityNoticeSeen(pendingActivityNotice?.key);
+  hideActivityNotice();
+});
+
+activityNoticeInterpret?.addEventListener("click", () => {
+  const activity = pendingActivityNotice;
+  if (!activity) return;
+  markActivityNoticeSeen(activity.key);
+  hideActivityNotice();
+  startNewConversation();
+  submitMessage(activity.prompt || "Generate a detailed report for my latest COROS workout");
+});
+
 function boot() {
   let conversations = loadConversations();
   if (conversations.length) {
@@ -693,6 +759,8 @@ function boot() {
   updateSuggestionsFromConversation();
   const prompt = new URLSearchParams(window.location.search).get("prompt");
   if (prompt) fillComposer(prompt);
+  window.setTimeout(checkActivityNotice, 1200);
+  window.setInterval(checkActivityNotice, 5 * 60 * 1000);
   input.focus();
 }
 

@@ -1,0 +1,2 @@
+[  300083ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8799/api/auto-report/latest:0
+[  600084ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8799/api/auto-report/latest:0

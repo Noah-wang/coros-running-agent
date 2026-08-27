@@ -660,6 +660,114 @@ button {
   cursor: not-allowed;
 }
 
+.activity-notice {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  pointer-events: none;
+}
+
+.activity-notice[hidden] {
+  display: none;
+}
+
+.activity-notice-card {
+  position: relative;
+  width: min(420px, 100%);
+  padding: 26px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 22px 70px rgba(21, 24, 31, 0.24);
+  pointer-events: auto;
+  animation: notice-pop 0.36s cubic-bezier(0.18, 0.9, 0.22, 1.12) both;
+}
+
+.activity-notice-card::before {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  z-index: -1;
+  border: 1.5px solid rgba(34, 38, 47, 0.18);
+  border-radius: 16px;
+  background: rgba(246, 243, 234, 0.42);
+}
+
+.notice-close {
+  position: absolute;
+  top: 13px;
+  right: 13px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1.5px solid rgba(34, 38, 47, 0.14);
+  border-radius: 50%;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.notice-close:hover {
+  color: var(--ink);
+  background: rgba(34, 38, 47, 0.06);
+}
+
+.notice-eyebrow {
+  margin: 0 0 10px;
+  color: var(--orange);
+  font-size: 12px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.activity-notice-card h2 {
+  margin: 0;
+  max-width: 330px;
+  font-size: 28px;
+  line-height: 1.12;
+  font-weight: 760;
+}
+
+.activity-notice-card p:not(.notice-eyebrow) {
+  margin: 12px 0 22px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.notice-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--line);
+  cursor: pointer;
+}
+
+.notice-primary:hover {
+  background: #2c303a;
+}
+
+@keyframes notice-pop {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @media (max-width: 980px) {
   .workspace {
     grid-template-columns: 190px minmax(0, 1fr);

@@ -13,6 +13,8 @@ from urllib.parse import quote, unquote, urlparse
 
 from dotenv import load_dotenv
 
+from agents.coros_report.activity_browser import summarize_activity
+from agents.coros_report.auto_report import activity_key, recent_coros_activities
 from src.runtime import ratelimit
 from src.runtime.flow_map import module_payload
 from src.runtime.trace import log_event
@@ -307,6 +309,12 @@ class WebHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/data":
             self._send(*_json_response(_data_payload()), include_body=include_body)
+            return
+        if parsed.path == "/api/auto-report/latest":
+            self._send(
+                *_json_response(asyncio.run(_auto_report_notice_payload())),
+                include_body=include_body,
+            )
             return
         if parsed.path == "/data":
             self._serve_static("/data.html", include_body=include_body)
@@ -1119,6 +1127,99 @@ def _data_coros_archive_section(coros_memory: dict[str, Any]) -> dict[str, Any]:
         "title": "COROS data",
         "description": "Activities, raw FIT files, and route map assets.",
         "items": items,
+    }
+
+
+def _web_auto_report_enabled() -> bool:
+    return os.getenv("WEB_AUTO_REPORT_NOTICE_ENABLED", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _web_auto_report_demo_enabled() -> bool:
+    return os.getenv("WEB_AUTO_REPORT_NOTICE_DEMO", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _auto_report_timeout_seconds() -> int:
+    raw_value = os.getenv("WEB_AUTO_REPORT_NOTICE_TIMEOUT_SECONDS", "20")
+    try:
+        return max(int(raw_value), 5)
+    except ValueError:
+        return 20
+
+
+def _demo_auto_report_notice() -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "pending": True,
+        "activity": {
+            "key": "demo-activity-2026-08-20",
+            "title": "Completed 10.00 km · Indoor Run",
+            "meta": "2026-08-20 · 1:18 · ready for AI review",
+            "sport": "Indoor Run",
+            "distance": "10.00 km",
+            "duration": "1:18",
+            "date": "2026-08-20",
+            "prompt": "Generate a detailed report for my latest COROS workout. Use the Shadowrunner workout review style.",
+        },
+    }
+
+
+async def _auto_report_notice_payload() -> dict[str, Any]:
+    if not _web_auto_report_enabled():
+        return {"enabled": False, "pending": False}
+
+    if _web_agent_mode() != "real":
+        if _web_auto_report_demo_enabled():
+            return _demo_auto_report_notice()
+        return {"enabled": True, "pending": False, "mode": "demo"}
+
+    try:
+        records = await asyncio.wait_for(
+            recent_coros_activities(),
+            timeout=_auto_report_timeout_seconds(),
+        )
+    except Exception as exc:
+        return {
+            "enabled": True,
+            "pending": False,
+            "error": str(exc) or exc.__class__.__name__,
+        }
+
+    if not records:
+        return {"enabled": True, "pending": False}
+
+    activity = records[0]
+    summary = summarize_activity(activity)
+    distance = summary.get("distance") or "distance unknown"
+    sport = summary.get("type") or "Workout"
+    date_text = summary.get("date") or "unknown date"
+    duration = summary.get("duration") or "duration unknown"
+    key = activity_key(activity)
+    return {
+        "enabled": True,
+        "pending": True,
+        "activity": {
+            "key": key,
+            "title": f"Completed {distance} · {sport}",
+            "meta": f"{date_text} · {duration} · ready for AI review",
+            "sport": sport,
+            "distance": distance,
+            "duration": duration,
+            "date": date_text,
+            "prompt": (
+                "Generate a detailed report for my latest COROS workout. "
+                "Use the Shadowrunner workout review style."
+            ),
+        },
     }
 
 

@@ -1,0 +1,65 @@
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - heading "COROS Running Agent" [level=1] [ref=e5]
+    - navigation [ref=e6]:
+      - link "Chat" [ref=e7] [cursor=pointer]:
+        - /url: /
+      - link "Data" [ref=e8] [cursor=pointer]:
+        - /url: /data
+      - link "Tech" [ref=e9] [cursor=pointer]:
+        - /url: /tech
+  - main [ref=e10]:
+    - complementary "Conversation list" [ref=e11]:
+      - button "New chat" [ref=e12] [cursor=pointer]
+      - region "Execution trace" [ref=e13]:
+        - heading "Execution trace" [level=2] [ref=e14]
+        - img [ref=e15]:
+          - generic [ref=e26]: Input
+          - generic [ref=e29]: Router
+          - generic [ref=e32]: Agent loop
+          - generic [ref=e35]: Capability
+          - generic [ref=e38]: LangGraph
+          - generic [ref=e41]: COROS MCP
+          - generic [ref=e44]: Profile
+          - generic [ref=e47]: RAG
+          - generic [ref=e50]: Search
+          - generic [ref=e53]: Observation
+          - generic [ref=e56]: LLM
+          - generic [ref=e59]: Reflect
+          - generic [ref=e62]: Answer
+        - paragraph [ref=e65]: Nodes light up after you ask
+    - generic [ref=e66]:
+      - generic [ref=e69]:
+        - heading "COROS Running Agent" [level=2] [ref=e70]
+        - paragraph [ref=e71]: This web console can read workouts, personal bests, running knowledge, and COROS archives. Write actions stay in Discord.
+      - region "Suggested questions" [ref=e72]:
+        - generic [ref=e73]:
+          - button "List my last 90 days" [ref=e74] [cursor=pointer]:
+            - generic [ref=e76]: →
+          - button "Review my latest workout" [ref=e77] [cursor=pointer]:
+            - generic [ref=e79]: →
+          - button "Show my PBs" [ref=e80] [cursor=pointer]:
+            - generic [ref=e82]: →
+          - button "Choose race shoes" [ref=e83] [cursor=pointer]:
+            - generic [ref=e85]: →
+          - button "Search shoe reviews" [ref=e86] [cursor=pointer]:
+            - generic [ref=e88]: →
+          - button "Find my bottleneck" [ref=e89] [cursor=pointer]:
+            - generic [ref=e91]: →
+          - button "List my last 90 days" [ref=e92] [cursor=pointer]:
+            - generic [ref=e94]: →
+          - button "Review my latest workout" [ref=e95] [cursor=pointer]:
+            - generic [ref=e97]: →
+          - button "Show my PBs" [ref=e98] [cursor=pointer]:
+            - generic [ref=e100]: →
+          - button "Choose race shoes" [ref=e101] [cursor=pointer]:
+            - generic [ref=e103]: →
+          - button "Search shoe reviews" [ref=e104] [cursor=pointer]:
+            - generic [ref=e106]: →
+          - button "Find my bottleneck" [ref=e107] [cursor=pointer]:
+            - generic [ref=e109]: →
+      - generic [ref=e110]:
+        - generic [ref=e111]: Message
+        - textbox "Message" [active] [ref=e112]:
+          - /placeholder: Ask a question, or click a suggested prompt above...
+        - button "Send" [ref=e113] [cursor=pointer]

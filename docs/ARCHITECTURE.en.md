@@ -76,7 +76,15 @@ The web UI receives `trace_step` events over SSE. Each event maps a tool or work
 
 The trace is observational only. It does not control routing, tool calls, or permissions.
 
-## 10. Privacy Boundary
+## 10. Web Auto Report Notice
+
+The web UI can poll a read-only endpoint for the latest COROS activity summary.
+
+The endpoint only returns a short activity notice. It does not generate a full report, update long-term memory, or mark the activity as reported. The browser remembers dismissed activity IDs in local storage, so the same workout does not keep popping up for the same visitor.
+
+When the user clicks **Interpret**, the web console opens a chat session and sends a normal workout-report prompt through the existing agent path.
+
+## 11. Privacy Boundary
 
 The repository contains runtime code, templates, and sample configuration. Local deployment data should not be committed:
 

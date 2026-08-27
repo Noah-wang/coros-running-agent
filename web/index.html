@@ -148,6 +148,21 @@
       </section>
     </main>
 
+    <section class="activity-notice" id="activityNotice" hidden aria-live="polite">
+      <div class="activity-notice-card" role="dialog" aria-modal="false" aria-labelledby="activityNoticeTitle">
+        <button type="button" class="notice-close" id="activityNoticeDismiss" aria-label="Dismiss workout notice">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
+                  stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <p class="notice-eyebrow">New activity detected</p>
+        <h2 id="activityNoticeTitle">Completed workout</h2>
+        <p id="activityNoticeMeta">Ready for AI review</p>
+        <button type="button" class="notice-primary" id="activityNoticeInterpret">Interpret</button>
+      </div>
+    </section>
+
     <script src="/app.js" type="module"></script>
   </body>
 </html>

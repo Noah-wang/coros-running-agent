@@ -142,7 +142,7 @@
     </td>
     <td width="33%">
       <strong>Web 控制台</strong><br>
-      公开只读 Demo，支持 SSE 流式输出和右侧调用链路高亮。
+      公开只读 Demo，支持 SSE 流式输出、调用链路高亮，以及新运动检测弹窗。
     </td>
     <td width="33%">
       <strong>可选联网搜索</strong><br>

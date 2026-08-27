@@ -69,7 +69,7 @@
 | Long-term running profile | Stores stable facts such as goals, PBs, weekly mileage, injury context, subjective feelings, and race history. |
 | Automatic reports | Polls for new COROS activities and sends a report to a Discord channel after a workout. |
 | FIT archive | Downloads raw COROS FIT files locally with quota-aware retries and resumable storage. |
-| Web console | Provides a public, read-only demo surface with streaming responses and a live execution trace. |
+| Web console | Provides a public, read-only demo surface with streaming responses, a live execution trace, and a new-activity report prompt. |
 | Optional web search | Can use Tavily or Brave Search when the answer depends on current information, such as races, official links, or shoe availability. |
 
 Example questions:
