@@ -39,6 +39,13 @@ class Tool:
     # 这个工具的返回值里含有第三方能控制的文本（书籍原文、视频字幕、外部接口）。
     # 一旦这种内容进了上下文，本轮就不再允许调用写工具——见 run_tool_loop。
     returns_untrusted: bool = False
+    # 这个工具自己需要多久。None 表示用全局的 TOOL_TIMEOUT_SECONDS。
+    #
+    # 全局值（75 秒）是按「一次取数」定的。但有的工具内部要串一整条链——
+    # 睡眠报告要并行拉五个 COROS 接口再让模型写一篇报告，正常就要一两分钟。
+    # 用全局值的话它每次都超时，而超时**不报错**、只是变成一条「拿不到数据」
+    # 喂给模型，于是表现成「这个功能时好时坏」。
+    timeout_seconds: float | None = None
 
     def schema(self) -> dict[str, Any]:
         """工具的 JSON schema，额外注入一个 why 字段。
@@ -244,9 +251,15 @@ async def run_tool_loop(
                 continue
 
             try:
+                tool = registry.get(call.function.name)
+                timeout = (
+                    tool.timeout_seconds
+                    if tool is not None and tool.timeout_seconds
+                    else _tool_timeout_seconds()
+                )
                 result = await asyncio.wait_for(
                     registry.execute(call.function.name, arguments),
-                    timeout=_tool_timeout_seconds(),
+                    timeout=timeout,
                 )
             except TimeoutError:
                 # 超时要变成给模型的一条结果，而不是抛出去。

@@ -33,6 +33,7 @@ TOOL_MODULES: dict[str, str] = {
     "list_races": "races",
     "photo": "races",
     "list_recent_activities": "coros",
+    "get_sleep_report": "coros",
     "coros": "coros",
     "coros-list": "coros",
     "coros-activity": "coros",

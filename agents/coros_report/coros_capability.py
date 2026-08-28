@@ -12,6 +12,7 @@ from agents.coros_report.feelings import list_recent_feelings, record_feeling
 from agents.coros_report.fit_archive import archive_fit_for_activities, render_route_map_for_activity
 from agents.coros_report.knowledge import answer_running_question
 from agents.coros_report.coros_read_tools import COROS_READ_TOOLS
+from agents.coros_report.sleep_read_tools import SLEEP_READ_TOOLS
 from agents.coros_report.personal_bests import format_personal_bests
 from src.runtime.capability import Capability, CommandContext, TextCommand
 from src.runtime.knowledge_sources import add_source, format_sources
@@ -209,7 +210,7 @@ def build_coros_capability() -> Capability:
         name="coros-report",
         description="读取 COROS 运动数据，生成训练报告，回答跑步问题，并记录主观感受。",
         channel_env_name="DISCORD_RUNNING_CHANNEL_ID",
-        read_tools=COROS_READ_TOOLS,
+        read_tools=(*COROS_READ_TOOLS, *SLEEP_READ_TOOLS),
         text_commands=(
             TextCommand(
                 "coros",
