@@ -12,3 +12,6 @@ data/
 agents/*/config.toml
 
 **/.secrets/
+
+# Playwright local debug artifacts
+.playwright-cli/
