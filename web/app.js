@@ -40,6 +40,8 @@ let flowQueue = [];
 let flowPlaying = false;
 let lastFlowModule = null;
 let pendingActivityNotice = null;
+let activeStreamBubble = null;
+let activeStreamText = "";
 const OBSERVATION_SOURCES = new Set(["coros", "profile", "knowledge", "search"]);
 
 function newSessionId() {
@@ -450,6 +452,42 @@ async function streamText(bubble, text) {
   bubble.innerHTML = renderMarkdown(text);
 }
 
+function renderActiveStream() {
+  if (!activeStreamBubble) return;
+  const stick = atBottom();
+  activeStreamBubble.innerHTML = renderMarkdown(activeStreamText);
+  const cursor = document.createElement("span");
+  cursor.className = "cursor";
+  (activeStreamBubble.lastElementChild || activeStreamBubble).appendChild(cursor);
+  if (stick) scrollToBottom();
+}
+
+function startAgentStream() {
+  hideThinking();
+  if (activeStreamBubble) return;
+  activeStreamText = "";
+  activeStreamBubble = appendMessage("agent", "", { persist: false });
+  renderActiveStream();
+}
+
+function appendAgentStream(delta) {
+  if (!delta) return;
+  if (!activeStreamBubble) startAgentStream();
+  activeStreamText += delta;
+  renderActiveStream();
+}
+
+function finishAgentStream(message = "") {
+  if (!activeStreamBubble) return;
+  const finalText = message || activeStreamText;
+  activeStreamBubble.innerHTML = renderMarkdown(finalText);
+  appendStoredMessage("agent", finalText);
+  updateContextualSuggestions("", finalText);
+  activeStreamBubble = null;
+  activeStreamText = "";
+  scrollToBottom();
+}
+
 function parseSseEvents(buffer) {
   const events = [];
   let remaining = buffer;
@@ -502,21 +540,30 @@ async function streamChat(message) {
 
     for (const event of parsed.events) {
       if (event.type === "done") {
+        finishAgentStream();
         await reader.cancel().catch(() => {});
         return;
       }
-      if (event.type === "message") {
+      if (event.type === "message_start") {
+        startAgentStream();
+      } else if (event.type === "message_delta") {
+        appendAgentStream(event.delta || "");
+      } else if (event.type === "message_end") {
+        finishAgentStream(event.message || "");
+      } else if (event.type === "message") {
         const text = event.message || "";
         if (!text.trim()) continue;
         if (isProgressNotice(text)) {
           showThinking(text);
           continue;
         }
+        finishAgentStream();
         hideThinking();
         await streamText(appendMessage("agent", "", { persist: false }), text);
         appendStoredMessage("agent", text);
         updateContextualSuggestions("", text);
       } else if (event.type === "images") {
+        finishAgentStream();
         hideThinking();
         appendImages(event.urls, event.caption || "");
       } else if (event.type === "trace_step") {
@@ -524,6 +571,7 @@ async function streamChat(message) {
       } else if (event.type === "status") {
         showThinking(event.message || "Thinking");
       } else if (event.type === "error") {
+        finishAgentStream();
         hideThinking();
         appendMessage("error", `Error: ${event.error || "Unknown error"}`);
       }

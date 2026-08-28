@@ -1291,7 +1291,7 @@ class WebChannel:
 
     async def send(self, content: str) -> None:
         self.messages.append(content)
-        self._emit({"type": "message", "message": content})
+        await self._emit_message_stream(content)
 
     async def notify(self, content: str) -> None:
         """进度提示。走 status 事件，前端显示在「思考中」那一行，不落进对话。"""
@@ -1304,6 +1304,30 @@ class WebChannel:
     def trace_step(self, payload: dict[str, Any]) -> None:
         """把一次工具调用映射成的架构模块推给前端，用来在架构图上高亮。"""
         self._emit(payload)
+
+    async def _emit_message_stream(self, content: str) -> None:
+        self._emit({"type": "message_start"})
+        for chunk in _text_stream_chunks(content):
+            self._emit({"type": "message_delta", "delta": chunk})
+            await asyncio.sleep(0.012)
+        self._emit({"type": "message_end", "message": content})
+
+
+def _text_stream_chunks(text: str, size: int = 72) -> list[str]:
+    if len(text) <= size:
+        return [text]
+
+    chunks: list[str] = []
+    current = ""
+    for token in re.split(r"(\s+)", text):
+        if len(current) + len(token) > size and current:
+            chunks.append(current)
+            current = token
+        else:
+            current += token
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 def _ensure_agent_paths() -> None:
@@ -1397,12 +1421,27 @@ async def _stream_real_chat(
 
     channel = WebChannel(emit, conversation_id)
     emit({"type": "status", "message": "Calling the real agent..."})
-    route = await get_orchestrator().dispatch_web_text(
-        None,
-        channel,
-        prompt,
-        WEB_COMMANDS,
+    task = asyncio.create_task(
+        get_orchestrator().dispatch_web_text(
+            None,
+            channel,
+            prompt,
+            WEB_COMMANDS,
+        )
     )
+    messages = (
+        "Reading the required data...",
+        "Waiting for tool results...",
+        "Organizing context...",
+        "Generating the answer...",
+    )
+    index = 0
+    while not task.done():
+        await asyncio.sleep(2.5)
+        if not task.done():
+            emit({"type": "status", "message": messages[index % len(messages)]})
+            index += 1
+    route = await task
     emit({"type": "trace", "result": _route_result_payload(route)})
 
 
@@ -1411,12 +1450,19 @@ async def _collect_real_chat(
     conversation_id: str = "web:default",
 ) -> dict[str, Any]:
     messages: list[str] = []
+    saw_delta = False
 
     def emit(payload: dict[str, Any]) -> None:
+        nonlocal saw_delta
         if payload.get("type") == "message":
             message = payload.get("message")
             if isinstance(message, str):
                 messages.append(message)
+        elif payload.get("type") == "message_delta":
+            delta = payload.get("delta")
+            if isinstance(delta, str):
+                saw_delta = True
+                messages.append(delta)
 
     _ensure_agent_paths()
     from src.orchestrator import get_orchestrator
@@ -1429,7 +1475,7 @@ async def _collect_real_chat(
         WEB_COMMANDS,
     )
     result = _route_result_payload(route)
-    result["message"] = "\n\n".join(messages)
+    result["message"] = "".join(messages) if saw_delta else "\n\n".join(messages)
     return result
 
 
