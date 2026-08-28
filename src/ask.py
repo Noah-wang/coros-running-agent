@@ -329,7 +329,14 @@ async def answer_open_question(
         used_tools=used_tools,
     )
 
-    if _reflection_enabled():
+    # 直出的答案不进反思。反思会判断「这份回答够不够」，判定不够就让模型
+    # 补一轮——而补出来的东西是模型自己写的，格式立刻又跑偏了。
+    passthrough_used = any(
+        (registry.get(name) is not None and registry.get(name).passthrough)
+        for name in used_tools
+    )
+
+    if _reflection_enabled() and not passthrough_used:
         for _ in range(MAX_REFLECTION_RETRIES):
             if on_tool is not None:
                 try:

@@ -60,6 +60,9 @@ SLEEP_REPORT_TOOL = Tool(
     },
     handler=get_sleep_report,
     timeout_seconds=SLEEP_REPORT_TIMEOUT_SECONDS,
+    # 晨报已经是成品，原样透出。**这是为了两个入口格式一致**——
+    # 定时任务推到 Discord 的和聊天里问出来的，必须是同一份东西。
+    passthrough=True,
 )
 
 SLEEP_READ_TOOLS = (SLEEP_REPORT_TOOL,)
