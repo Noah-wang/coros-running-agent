@@ -1,3 +1,4 @@
+import { t, applyI18n, mountLangToggle, getLang } from "/i18n.js";
 import { renderMarkdown } from "/markdown.js";
 
 const tabsEl = document.querySelector("#tabs");
@@ -61,8 +62,8 @@ function render() {
 
 async function load() {
   try {
-    const response = await fetch("/api/tech");
-    if (!response.ok) throw new Error("Failed to load");
+    const response = await fetch(`/api/tech?lang=${getLang()}`);
+    if (!response.ok) throw new Error(t("tech.loadFailed"));
     const payload = await response.json();
     state.tabs = (payload.tabs || []).filter((tab) => tab.items?.length);
     if (!state.tabs.length) {
@@ -75,4 +76,6 @@ async function load() {
   }
 }
 
+applyI18n();
+mountLangToggle();
 load();

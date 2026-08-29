@@ -1,4 +1,5 @@
 import { renderMarkdown } from "/markdown.js";
+import { t, applyI18n, mountLangToggle, getLang } from "/i18n.js";
 
 const stage = document.querySelector(".stage");
 const chatLog = document.querySelector("#chatLog");
@@ -54,7 +55,7 @@ function emptyConversation() {
   const now = new Date().toISOString();
   return {
     id: newSessionId(),
-    title: "Current chat",
+    title: t("chat.currentChat"),
     createdAt: now,
     updatedAt: now,
     messages: [],
@@ -126,8 +127,11 @@ function appendStoredMessage(role, text) {
   updateActiveConversation((conversation) => {
     const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
     conversation.messages = [...messages, { role, text }];
-    if (role === "user" && ["新对话", "当前对话", "New chat", "Current chat"].includes(conversation.title)) {
-      conversation.title = text.slice(0, 26) || "Current chat";
+    // 标题的默认值随语言变，所以两种语言的默认标题都要认，
+    // 否则切一次语言之后旧对话的标题就不会再被首句覆盖了。
+    const defaults = ["新对话", "当前对话", "New chat", "Current chat"];
+    if (role === "user" && defaults.includes(conversation.title)) {
+      conversation.title = text.slice(0, 26) || t("chat.currentChat");
     }
   });
 }
@@ -194,7 +198,7 @@ function showActivityNotice(activity) {
 async function checkActivityNotice() {
   if (!activityNotice || document.hidden) return;
   try {
-    const response = await fetch("/api/auto-report/latest");
+    const response = await fetch(`/api/auto-report/latest?lang=${getLang()}`);
     if (!response.ok) return;
     const payload = await response.json();
     const activity = payload.activity;
@@ -219,10 +223,14 @@ function renderConversationList() {
       <span class="conversation-title"></span>
       <span class="conversation-meta"></span>
     `;
-    const title = ["新对话", "当前对话"].includes(conversation.title) ? "Current chat" : conversation.title;
-    button.querySelector(".conversation-title").textContent = title || "Current chat";
+    const title = ["新对话", "当前对话", "New chat"].includes(conversation.title)
+      ? t("chat.currentChat")
+      : conversation.title;
+    button.querySelector(".conversation-title").textContent = title || t("chat.currentChat");
     const count = Array.isArray(conversation.messages) ? conversation.messages.length : 0;
-    button.querySelector(".conversation-meta").textContent = count ? `${count} messages` : "Empty chat";
+    button.querySelector(".conversation-meta").textContent = count
+      ? `${count} ${t("chat.messageCount")}`
+      : t("chat.emptyChat");
     button.addEventListener("click", () => switchConversation(conversation.id));
     conversationListEl.appendChild(button);
   }
@@ -313,7 +321,7 @@ function flowReset() {
   flowQueue = [];
   flowPlaying = false;
   lastFlowModule = null;
-  if (flowHint) flowHint.textContent = "Nodes light up after you ask";
+  if (flowHint) flowHint.textContent = t("flow.hint");
 }
 
 // 只有「当前步」是高亮的，之前走过的降级成 is-done。
@@ -512,11 +520,12 @@ async function streamChat(message) {
   const response = await fetch("/api/chat/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, session_id: conversationId() }),
+    // 语言随请求发给后端：它决定 Agent 用哪种语言回答
+    body: JSON.stringify({ message, session_id: conversationId(), lang: getLang() }),
   });
 
   if (!response.ok || !response.body) {
-    let errorMessage = "Request failed";
+    let errorMessage = t("chat.requestFailed");
     try {
       const result = await response.json();
       errorMessage = result.error || errorMessage;
@@ -569,11 +578,11 @@ async function streamChat(message) {
       } else if (event.type === "trace_step") {
         flowStep(event.module, event.why || event.label || "");
       } else if (event.type === "status") {
-        showThinking(event.message || "Thinking");
+        showThinking(event.message || t("chat.thinking"));
       } else if (event.type === "error") {
         finishAgentStream();
         hideThinking();
-        appendMessage("error", `Error: ${event.error || "Unknown error"}`);
+        appendMessage("error", `${t("chat.failed")}: ${event.error || t("chat.unknownError")}`);
       }
     }
   }
@@ -601,7 +610,7 @@ async function submitMessage(message) {
   input.value = "";
   autoGrow();
   setBusy(true);
-  showThinking("Thinking");
+  showThinking(t("chat.thinking"));
   flowReset();
   flowStep("entry", "Received the question and sent it to the main agent");
 
@@ -746,7 +755,7 @@ function updateSuggestionsFromConversation() {
 
 async function loadSuggestions() {
   try {
-    const response = await fetch("/api/capabilities");
+    const response = await fetch(`/api/capabilities?lang=${getLang()}`);
     if (!response.ok) throw new Error();
     const payload = await response.json();
     const actions = payload.sample_actions || FALLBACK_ACTIONS;
@@ -801,6 +810,9 @@ function boot() {
     saveConversations([conversation]);
     localStorage.setItem(ACTIVE_SESSION_KEY, activeSessionId);
   }
+  // 先刷文案再渲染内容：反过来的话会先闪一下默认语言
+  applyI18n();
+  mountLangToggle();
   renderConversationList();
   renderConversation();
   loadSuggestions();

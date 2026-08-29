@@ -291,6 +291,10 @@ class MainAgentOrchestrator:
             # 保存和改标注在这条路上根本不会执行。
             "photo",
         ),
+        # 放在 allowed_commands **之后**：调用方用位置传参传命令表，
+        # 插在前面会把命令表当成语言，而且不会报错——只是模型收到一个
+        # 看不懂的语言指令，然后一切照旧，最难查的那种。
+        lang: str = "",
     ) -> NaturalLanguageRoute | None:
         stripped = content.strip()
         if not stripped:
@@ -343,6 +347,7 @@ class MainAgentOrchestrator:
                 self._command_context(client, channel, read_only=True),
                 stripped,
                 allowed_commands=allowed_commands,
+                lang=lang,
             )
             return NaturalLanguageRoute("ask", stripped, 1.0, "main agent loop")
 
@@ -725,6 +730,7 @@ User message:
         question: str,
         client: object | None = None,
         allowed_commands: tuple[str, ...] | None = None,
+        lang: str = "",
     ) -> None:
         question = question.strip()
         if not question:
@@ -768,6 +774,7 @@ User message:
                 conversation_id=context.conversation_id,
                 log=self._log,
                 on_tool=on_tool,
+                lang=lang,
             )
         except Exception as exc:
             await self._send_error(context.channel, "回答失败", exc)

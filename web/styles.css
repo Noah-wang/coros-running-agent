@@ -1626,3 +1626,23 @@ button {
 .photo-grid a:hover img {
   transform: scale(1.05);
 }
+
+/* 中英文切换。放在导航末尾，视觉上比导航项弱一档——它是设置，不是页面 */
+.lang-toggle {
+  margin-left: 10px;
+  padding: 5px 12px;
+  border: 1.5px solid rgba(34, 38, 47, 0.22);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.lang-toggle:hover {
+  border-color: var(--line);
+  color: var(--ink);
+}

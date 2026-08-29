@@ -16,28 +16,28 @@
         <h1>COROS Running Agent</h1>
       </div>
       <nav class="topnav">
-        <a href="/">Chat</a>
-        <a href="/data" class="active" aria-current="page">Data</a>
-        <a href="/tech">Tech</a>
+        <a href="/" data-i18n="nav.chat">Chat</a>
+        <a href="/data" class="active" aria-current="page" data-i18n="nav.data">Data</a>
+        <a href="/tech" data-i18n="nav.tech">Tech</a>
       </nav>
     </header>
 
     <main class="data-shell">
       <section class="data-hero" aria-labelledby="dataTitle">
         <div>
-          <p class="eyebrow">Personal Agent Data</p>
-          <h2 id="dataTitle">Your Agent Memory</h2>
-          <p>
+          <p class="eyebrow" data-i18n="data.eyebrow">Personal Agent Data</p>
+          <h2 id="dataTitle" data-i18n="data.title">Your Agent Memory</h2>
+          <p data-i18n="data.subtitle">
             This page shows data that the public web console can read: PBs, running knowledge,
             COROS archives, and route assets. The public web surface is read-only; writes still happen through Discord.
           </p>
         </div>
-        <a class="primary-link" href="/">Back to chat</a>
+        <a class="primary-link" href="/" data-i18n="data.back">Back to chat</a>
       </section>
 
-      <section class="metric-strip" id="metricStrip" aria-label="Data overview"></section>
+      <section class="metric-strip" id="metricStrip" data-i18n-aria="data.overview" aria-label="Data overview"></section>
 
-      <nav class="data-tabs" id="dataTabs" aria-label="Data categories"></nav>
+      <nav class="data-tabs" id="dataTabs" data-i18n-aria="data.categories" aria-label="Data categories"></nav>
 
       <section class="data-board" id="dataBoard" aria-live="polite"></section>
     </main>

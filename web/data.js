@@ -1,3 +1,4 @@
+import { t, applyI18n, mountLangToggle, getLang } from "/i18n.js";
 const metricStrip = document.querySelector("#metricStrip");
 const dataTabs = document.querySelector("#dataTabs");
 const dataBoard = document.querySelector("#dataBoard");
@@ -56,7 +57,7 @@ function renderActiveSection() {
       <p></p>
     </div>
   `;
-  header.querySelector(".eyebrow").textContent = "Read only";
+  header.querySelector(".eyebrow").textContent = t("data.readOnly");
   header.querySelector("h3").textContent = section.title;
   header.querySelector("p:last-child").textContent = section.description || "";
   dataBoard.appendChild(header);
@@ -225,7 +226,7 @@ function renderRecord(item, sectionKey) {
   }
 
   const action = article.querySelector(".record-action");
-  action.textContent = "Ask with this";
+  action.textContent = t("data.askWith");
   action.href = askUrl(item.prompt || item.title || "");
   return article;
 }
@@ -242,8 +243,8 @@ function labelFor(key) {
 
 async function boot() {
   try {
-    const response = await fetch("/api/data");
-    if (!response.ok) throw new Error("Failed to load data");
+    const response = await fetch(`/api/data?lang=${getLang()}`);
+    if (!response.ok) throw new Error(t("data.loadFailed"));
     const payload = await response.json();
     sections = Array.isArray(payload.sections) ? payload.sections : [];
     activeKey = sections[0]?.key || "";
@@ -260,4 +261,6 @@ async function boot() {
   }
 }
 
+applyI18n();
+mountLangToggle();
 boot();

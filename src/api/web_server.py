@@ -9,12 +9,13 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from dotenv import load_dotenv
 
 from agents.coros_report.activity_browser import summarize_activity
 from agents.coros_report.auto_report import activity_key, recent_coros_activities
+from src.api.i18n import localize
 from src.runtime import ratelimit
 from src.runtime.flow_map import module_payload
 from src.runtime.trace import log_event
@@ -282,8 +283,14 @@ class WebHandler(BaseHTTPRequestHandler):
     def do_HEAD(self) -> None:
         self._handle_get(include_body=False)
 
+    def _lang(self, parsed: Any) -> str:
+        """从查询串取语言。默认英文——这是个开源项目，陌生访客占多数。"""
+        values = parse_qs(parsed.query).get("lang", [])
+        return "zh" if values and values[0] == "zh" else "en"
+
     def _handle_get(self, include_body: bool) -> None:
         parsed = urlparse(self.path)
+        lang = self._lang(parsed)
         if parsed.path == "/api/health":
             self._send(
                 *_json_response(
@@ -299,20 +306,20 @@ class WebHandler(BaseHTTPRequestHandler):
                 "sample_prompts": SAMPLE_PROMPTS,
                 "sample_actions": SAMPLE_ACTIONS,
             }
-            self._send(*_json_response(payload), include_body=include_body)
+            self._send(*_json_response(localize(payload, lang)), include_body=include_body)
             return
         if parsed.path == "/api/tech":
-            self._send(*_json_response(_tech_payload()), include_body=include_body)
+            self._send(*_json_response(localize(_tech_payload(), lang)), include_body=include_body)
             return
         if parsed.path == "/api/showcase":
-            self._send(*_json_response(_showcase_payload()), include_body=include_body)
+            self._send(*_json_response(localize(_showcase_payload(), lang)), include_body=include_body)
             return
         if parsed.path == "/api/data":
-            self._send(*_json_response(_data_payload()), include_body=include_body)
+            self._send(*_json_response(localize(_data_payload(), lang)), include_body=include_body)
             return
         if parsed.path == "/api/auto-report/latest":
             self._send(
-                *_json_response(asyncio.run(_auto_report_notice_payload())),
+                *_json_response(localize(asyncio.run(_auto_report_notice_payload()), lang)),
                 include_body=include_body,
             )
             return
@@ -374,13 +381,14 @@ class WebHandler(BaseHTTPRequestHandler):
                 return
 
             conversation_id = self._conversation_id(data)
+            body_lang = "zh" if str(data.get("lang", "")) == "zh" else "en"
 
             if parsed.path == "/api/chat/stream":
-                self._stream_chat(prompt, conversation_id)
+                self._stream_chat(prompt, conversation_id, body_lang)
                 return
 
             if _web_agent_mode() == "real":
-                result = asyncio.run(_collect_real_chat(prompt, conversation_id))
+                result = asyncio.run(_collect_real_chat(prompt, conversation_id, body_lang))
                 self._send(*_json_response(result))
                 return
 
@@ -401,7 +409,7 @@ class WebHandler(BaseHTTPRequestHandler):
             return f"web:{safe}"
         return f"web:{self.client_address[0]}"
 
-    def _stream_chat(self, prompt: str, conversation_id: str) -> None:
+    def _stream_chat(self, prompt: str, conversation_id: str, lang: str = "en") -> None:
         self.send_response(HTTPStatus.OK.value)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -417,7 +425,7 @@ class WebHandler(BaseHTTPRequestHandler):
 
         try:
             if _web_agent_mode() == "real":
-                asyncio.run(_stream_real_chat(prompt, emit, conversation_id))
+                asyncio.run(_stream_real_chat(prompt, emit, conversation_id, lang))
             else:
                 response = _demo_response(prompt)
                 for module in _demo_trace_modules(prompt):
@@ -1415,6 +1423,7 @@ async def _stream_real_chat(
     prompt: str,
     emit: Callable[[dict[str, Any]], None],
     conversation_id: str = "web:default",
+    lang: str = "en",
 ) -> None:
     _ensure_agent_paths()
     from src.orchestrator import get_orchestrator
@@ -1427,6 +1436,7 @@ async def _stream_real_chat(
             channel,
             prompt,
             WEB_COMMANDS,
+            lang,
         )
     )
     messages = (
@@ -1448,6 +1458,7 @@ async def _stream_real_chat(
 async def _collect_real_chat(
     prompt: str,
     conversation_id: str = "web:default",
+    lang: str = "en",
 ) -> dict[str, Any]:
     messages: list[str] = []
     saw_delta = False
@@ -1473,6 +1484,7 @@ async def _collect_real_chat(
         channel,
         prompt,
         WEB_COMMANDS,
+        lang,
     )
     result = _route_result_payload(route)
     result["message"] = "".join(messages) if saw_delta else "\n\n".join(messages)
