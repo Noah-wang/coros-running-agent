@@ -434,6 +434,12 @@ COROS_MCP_CLIENT=mcp-remote@0.1.38 # 固定版本，别用不带版本的写法�
 ```bash
 DISCORD_BOT_TOKEN=...
 DISCORD_RUNNING_CHANNEL_ID=...     # 只在这个频道响应
+
+COROS_AUTO_REPORT_ENABLED=true
+COROS_AUTO_REPORT_POLL_MINUTES=15
+COROS_AUTO_REPORT_STABLE_MINUTES=60 # 等运动结束并稳定后再自动推送，避免同步中的半截记录
+COROS_AUTO_REPORT_SEND_ON_FIRST_RUN=false
+
 WEB_AGENT_MODE=real                # demo = 离线假数据
 WEB_PUBLIC_DOMAIN=agent.example.com
 WEB_RATE_LIMIT_PER_MINUTE=10

@@ -13,12 +13,19 @@ from agents.coros_report.fit_archive import archive_fit_for_activities, render_r
 from agents.coros_report.shadowrunner_prompt import REPORT_SYSTEM_PROMPT
 from src.integrations.coros_mcp import call_coros_tool
 from src.runtime.llm import complete_text
-from src.runtime.memory import format_memory_for_prompt, get_agent_memory, update_agent_memory
+from src.runtime.memory import (
+    format_memory_for_prompt,
+    get_agent_cache,
+    get_agent_memory,
+    update_agent_cache,
+    update_agent_memory,
+)
 from src.runtime.scheduler import add_interval_job
 from agents.coros_report.personal_bests import update_personal_bests_from_tool_results
 
 
 AGENT_NAME = "coros-report"
+AUTO_REPORT_CANDIDATE_CACHE_KEY = "auto_report_candidate_activity"
 _job_running = False
 
 
@@ -233,8 +240,27 @@ async def latest_coros_activity() -> dict[str, Any] | None:
     return records[0]
 
 
+def _activity_signature(activity: dict[str, Any]) -> str:
+    parts = [
+        activity_key(activity),
+        str(activity.get("distanceKm") or ""),
+        str(activity.get("duration") or ""),
+        str(activity.get("averagePace") or ""),
+        str(activity.get("averageHeartRate") or ""),
+    ]
+    return "|".join(parts)
+
+
 def should_send_activity(activity: dict[str, Any]) -> bool:
-    latest_reported_id = get_agent_memory(AGENT_NAME).get("latest_reported_activity_id")
+    memory = get_agent_memory(AGENT_NAME)
+    latest_reported_signature = memory.get("latest_reported_activity_signature")
+    current_signature = _activity_signature(activity)
+    if isinstance(latest_reported_signature, str) and latest_reported_signature:
+        return latest_reported_signature != current_signature
+
+    latest_reported_id = memory.get("latest_reported_activity_id")
+    if latest_reported_id == activity_key(activity):
+        return True
     return latest_reported_id != activity_key(activity)
 
 
@@ -247,14 +273,80 @@ def mark_activity_reported(activity: dict[str, Any]) -> None:
         AGENT_NAME,
         {
             "latest_reported_activity_id": activity_key(activity),
+            "latest_reported_activity_signature": _activity_signature(activity),
             "latest_reported_activity": {
                 "labelId": activity.get("labelId"),
                 "sportType": activity.get("sportType"),
                 "startTimestamp": activity.get("startTimestamp"),
                 "endTimestamp": activity.get("endTimestamp"),
+                "distanceKm": activity.get("distanceKm"),
+                "duration": activity.get("duration"),
+                "averagePace": activity.get("averagePace"),
+                "averageHeartRate": activity.get("averageHeartRate"),
             },
         },
     )
+
+
+def _activity_age_minutes(activity: dict[str, Any]) -> float | None:
+    timestamp = _timestamp(activity)
+    if timestamp <= 0:
+        return None
+    return (datetime.now(UTC).timestamp() - timestamp) / 60
+
+
+def _stable_minutes() -> int:
+    return _env_int("COROS_AUTO_REPORT_STABLE_MINUTES", 60, minimum=1)
+
+
+def _candidate_cache() -> dict[str, Any]:
+    cache = get_agent_cache(AGENT_NAME).get(AUTO_REPORT_CANDIDATE_CACHE_KEY, {})
+    return cache if isinstance(cache, dict) else {}
+
+
+def _mark_candidate(activity: dict[str, Any]) -> None:
+    update_agent_cache(
+        AGENT_NAME,
+        {
+            AUTO_REPORT_CANDIDATE_CACHE_KEY: {
+                "activity_id": activity_key(activity),
+                "activity_signature": _activity_signature(activity),
+                "first_seen_at": datetime.now(UTC).isoformat(),
+                "activity": {
+                    "labelId": activity.get("labelId"),
+                    "sportType": activity.get("sportType"),
+                    "startTimestamp": activity.get("startTimestamp"),
+                    "endTimestamp": activity.get("endTimestamp"),
+                    "distanceKm": activity.get("distanceKm"),
+                    "duration": activity.get("duration"),
+                },
+            }
+        },
+    )
+
+
+def _clear_candidate() -> None:
+    update_agent_cache(AGENT_NAME, {AUTO_REPORT_CANDIDATE_CACHE_KEY: {}})
+
+
+def _activity_stable_enough(activity: dict[str, Any]) -> tuple[bool, str]:
+    age_minutes = _activity_age_minutes(activity)
+    if age_minutes is None:
+        _mark_candidate(activity)
+        return False, "missing activity end timestamp"
+
+    stable_minutes = _stable_minutes()
+    if age_minutes < stable_minutes:
+        _mark_candidate(activity)
+        return False, f"activity ended {age_minutes:.1f} minutes ago; waiting {stable_minutes} minutes"
+
+    activity_signature = _activity_signature(activity)
+    candidate = _candidate_cache()
+    if candidate.get("activity_signature") != activity_signature:
+        _mark_candidate(activity)
+        return False, "activity first seen after stable window; waiting one more check"
+
+    return True, "activity is stable"
 
 
 async def generate_activity_report(
@@ -469,6 +561,7 @@ async def check_and_send_coros_auto_report(
         _log_auto_report(f"activity_lookup records>=1 {_activity_log_summary(activity)}")
 
         if not force_send and not should_send_activity(activity):
+            _clear_candidate()
             message = "COROS auto report skipped: no new activity."
             if notify_no_change:
                 _log_auto_report("discord_notify_no_change_start")
@@ -476,12 +569,19 @@ async def check_and_send_coros_auto_report(
                 _log_auto_report("discord_notify_no_change_end")
             return message
 
+        if not force_send:
+            stable, reason = _activity_stable_enough(activity)
+            _log_auto_report(f"activity_stability stable={stable} reason={reason}")
+            if not stable:
+                return f"COROS auto report skipped: {reason}."
+
         should_send_first = (
             _send_on_first_run() if send_on_first_run is None else send_on_first_run
         )
         if not force_send and not has_reported_activity() and not should_send_first:
             _log_auto_report("first_run_initialize_latest_activity")
             mark_activity_reported(activity)
+            _clear_candidate()
             return "COROS auto report initialized with latest activity."
 
         _log_auto_report("discord_detected_message_start")
@@ -495,6 +595,7 @@ async def check_and_send_coros_auto_report(
         _log_auto_report("discord_report_send_end")
         await _send_route_map_if_available(channel, activity)
         mark_activity_reported(activity)
+        _clear_candidate()
         _log_auto_report("mark_activity_reported")
         return "COROS auto report sent."
     except Exception as exc:
