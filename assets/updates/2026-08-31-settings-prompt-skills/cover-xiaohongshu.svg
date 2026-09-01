@@ -1,0 +1,49 @@
+<svg viewBox="0 0 680 907" preserveAspectRatio="xMidYMid meet" role="img" xmlns="http://www.w3.org/2000/svg"><title>高驰Coros Agent 更新内容</title><desc>冷灰纸面双色印刷封面，一个放大的开关被裁切在右边缘，标题为「高驰Coros Agent」，下方是本次更新的条目。</desc>
+
+<rect x="0" y="0" width="680" height="907" fill="#E9E9E5"/>
+
+<text x="60" y="106" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif" font-size="16" font-weight="500" letter-spacing="6" fill="#C83232">更新内容</text>
+<rect x="60" y="124" width="560" height="2.5" fill="#30343A"/>
+
+<text x="60" y="212" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif" font-size="74" font-weight="600" letter-spacing="0.5" fill="#30343A">高驰Coros</text>
+<text x="60" y="298" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif" font-size="74" font-weight="600" letter-spacing="0.5" fill="#30343A">Agent</text>
+
+<rect x="60" y="340" width="150" height="3" fill="#C83232"/>
+
+<g>
+<rect x="152" y="398" width="566" height="182" rx="91" fill="#30343A"/>
+<rect x="155" y="401" width="566" height="182" rx="91" fill="#C83232" opacity="0.18"/>
+<rect x="152" y="398" width="566" height="182" rx="91" fill="#30343A"/>
+<circle cx="614" cy="489" r="70" fill="#E9E9E5"/>
+<circle cx="614" cy="489" r="30" fill="#C83232"/>
+<g fill="#E9E9E5" opacity="0.5">
+<rect x="212" y="470" width="44" height="5"/>
+<rect x="212" y="486" width="72" height="5"/>
+<rect x="212" y="502" width="30" height="5"/>
+</g>
+</g>
+
+<g fill="#30343A" opacity="0.14">
+<rect x="60" y="452" width="66" height="4"/>
+<rect x="60" y="480" width="42" height="4"/>
+<rect x="60" y="508" width="66" height="4"/>
+</g>
+
+<rect x="60" y="646" width="560" height="1.5" fill="#30343A" opacity="0.4"/>
+
+<g font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif" fill="#30343A">
+<rect x="60" y="686" width="12" height="12" fill="#C83232"/>
+<text x="90" y="698" font-size="24" font-weight="500">设置与 Prompt Skills 控制台</text>
+<text x="90" y="728" font-size="17" fill="#30343A" opacity="0.62">自动化开关 · 令牌保护 · 免重启生效</text>
+
+<rect x="60" y="774" width="12" height="12" fill="#C83232"/>
+<text x="90" y="786" font-size="24" font-weight="500">上传你自己的教练提示词</text>
+<text x="90" y="816" font-size="17" fill="#30343A" opacity="0.62">Markdown 直接生效，也可一键恢复内置</text>
+</g>
+
+<rect x="60" y="856" width="560" height="1.5" fill="#30343A" opacity="0.4"/>
+<g font-family="'Helvetica Neue',Arial,sans-serif" font-size="13" letter-spacing="1.8" fill="#30343A" opacity="0.6">
+<text x="60" y="884">中英双语</text>
+<text x="620" y="884" text-anchor="end">SETTINGS · PROMPT SKILLS</text>
+</g>
+</svg>
