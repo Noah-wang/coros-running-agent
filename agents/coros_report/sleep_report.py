@@ -13,6 +13,8 @@ from src.runtime.llm import complete_text
 from src.runtime.memory import format_memory_for_prompt, get_agent_cache, update_agent_cache
 from src.runtime.scheduler import add_interval_job
 from src.runtime.trace import new_trace
+from src.runtime.prompt_skills import active_skill
+from src.runtime.runtime_settings import automation_enabled
 
 
 AGENT_NAME = "coros-report"
@@ -95,7 +97,7 @@ def _daily_job_due() -> bool:
 
 
 def _enabled() -> bool:
-    return _env_bool("COROS_SLEEP_REPORT_ENABLED", True)
+    return automation_enabled("sleep_report")
 
 
 def _poll_minutes() -> int:
@@ -270,7 +272,7 @@ async def generate_sleep_report(
     return await _with_timeout(
         "llm_sleep_report_generation",
         complete_text(
-            SLEEP_REPORT_SYSTEM_PROMPT,
+            active_skill("sleep", "Morning Recovery Coach", SLEEP_REPORT_SYSTEM_PROMPT).content,
             f"""
 Target sleep date:
 {target_day.isoformat()}
@@ -293,6 +295,8 @@ async def check_and_send_coros_sleep_report(
     force_send: bool = False,
 ) -> str:
     global _job_running
+    if not force_send and not _enabled():
+        return "COROS sleep report skipped: automation is disabled."
     if _job_running:
         return "COROS sleep report skipped: previous job is still running."
 
@@ -349,10 +353,6 @@ async def _scheduled_check(client: discord.Client) -> None:
 
 
 def register_coros_sleep_report(client: discord.Client) -> None:
-    if not _enabled():
-        _log_sleep_report("scheduler_disabled")
-        return
-
     add_interval_job(
         "coros-sleep-report",
         _scheduled_check,
@@ -362,5 +362,5 @@ def register_coros_sleep_report(client: discord.Client) -> None:
     _log_sleep_report(
         f"scheduler_started poll_minutes={_poll_minutes()} "
         f"window={_window_start_time().strftime('%H:%M')}-{_window_end_time().strftime('%H:%M')} "
-        f"timezone={_timezone().key}"
+        f"timezone={_timezone().key} enabled={_enabled()}"
     )

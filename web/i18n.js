@@ -19,6 +19,7 @@ const DICT = {
   "nav.chat": { en: "Chat", zh: "对话" },
   "nav.data": { en: "Data", zh: "数据" },
   "nav.tech": { en: "Tech", zh: "技术" },
+  "nav.settings": { en: "Settings", zh: "设置" },
   "lang.toggle": { en: "中文", zh: "EN" },
   "lang.toggleAria": { en: "Switch to Chinese", zh: "Switch to English" },
 
@@ -89,6 +90,26 @@ const DICT = {
   // ── 技术页 ───────────────────────────────────────────
   "tech.sections": { en: "Sections", zh: "章节" },
   "tech.loadFailed": { en: "Failed to load", zh: "加载失败" },
+  "settings.eyebrow": { en: "Agent control plane", zh: "Agent 控制台" },
+  "settings.title": { en: "Settings & Prompt Skills", zh: "设置与 Prompt Skills" },
+  "settings.subtitle": { en: "Changes are stored locally and take effect without restarting the Agent.", zh: "修改保存在本机，并且无需重启 Agent 即可生效。" },
+  "settings.token": { en: "Administrator token", zh: "管理员令牌" },
+  "settings.unlock": { en: "Unlock", zh: "解锁" },
+  "settings.automation": { en: "Automations", zh: "自动化" },
+  "settings.delivery": { en: "Automatic delivery", zh: "自动发送" },
+  "settings.workout": { en: "Workout report", zh: "运动报告" },
+  "settings.workoutHelp": { en: "Detect stable activities and send a full review.", zh: "检测到稳定的运动记录后发送完整复盘。" },
+  "settings.sleep": { en: "Sleep report", zh: "睡眠报告" },
+  "settings.sleepHelp": { en: "Send a morning sleep and recovery review when data is ready.", zh: "睡眠数据就绪后发送晨间恢复分析。" },
+  "settings.skills": { en: "Coach instructions", zh: "教练指令" },
+  "settings.activate": { en: "Activate", zh: "启用" },
+  "settings.reset": { en: "Use built-in", zh: "恢复内置" },
+  "settings.skillName": { en: "Skill name", zh: "Skill 名称" },
+  "settings.markdown": { en: "Markdown prompt", zh: "Markdown 提示词" },
+  "settings.upload": { en: "Upload .md", zh: "上传 .md" },
+  "settings.save": { en: "Save and activate", zh: "保存并启用" },
+  "settings.ready": { en: "Administrator access unlocked.", zh: "管理员权限已解锁。" },
+  "settings.saved": { en: "Saved. The next run will use this configuration.", zh: "已保存，下次运行会使用新配置。" },
 };
 
 export function getLang() {

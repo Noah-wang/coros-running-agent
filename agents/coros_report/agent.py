@@ -5,6 +5,7 @@ from src.integrations.coros_mcp import call_coros_tool, compact_json, list_coros
 from src.runtime.llm import complete_json, complete_text
 from src.runtime.memory import format_memory_for_prompt
 from agents.coros_report.shadowrunner_prompt import REPORT_SYSTEM_PROMPT
+from src.runtime.prompt_skills import active_skill
 from agents.coros_report.tool_planner_prompt import TOOL_PLANNER_PROMPT
 
 
@@ -80,7 +81,7 @@ async def render_coros_report(
 
 	memory = format_memory_for_prompt("coros-report")
 	return await complete_text(
-		REPORT_SYSTEM_PROMPT,
+		active_skill("coach", "ShadowRunner", REPORT_SYSTEM_PROMPT).content,
 		f"""
 User request:
 {user_request}

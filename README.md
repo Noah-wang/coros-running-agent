@@ -672,6 +672,38 @@ Web 控制台没有登录。选择是：保留个人档案的**读**，但**所�
 
 ---
 
+## 设置页与自定义 Prompt Skill
+
+打开 `/settings` 可以管理自动运动报告、睡眠报告，以及两类 Prompt Skill：
+
+- `coach`：训练复盘、训练建议和运动报告的教练风格。
+- `sleep`：睡眠、HRV、恢复状态和当天训练准备度。
+
+在 `.env` 设置 `WEB_SETTINGS_TOKEN` 后，用该令牌解锁设置页。令牌只保存在当前
+浏览器标签页的 `sessionStorage`，不会写进仓库或 Agent 数据。可以粘贴 Markdown，
+也可以上传不超过 64 KB 的 `.md` 文件；修改会存入被 Git 忽略的
+`data/prompt-skills/`，下一次报告立即生效，无需重启服务。
+
+Skill 是**受控提示词**，不是可执行插件：项目不会运行 Markdown 里的脚本、
+命令或工具声明。公开部署时必须使用 HTTPS，并为 `WEB_SETTINGS_TOKEN` 设置足够长的
+随机值；留空会关闭整个设置 API。
+
+Discord 管理员还可以使用：
+
+~~~text
+!coros-config
+!coros-config auto-report true
+!coros-config sleep-report false
+!skill list coach
+!skill import sleep <Markdown>
+!skill activate coach coach:your-skill
+!skill reset sleep
+~~~
+
+这些命令只接受 `DISCORD_ADMIN_USER_IDS` 中的账号。
+
+---
+
 ## 部署
 
 一台小 VPS 就够。常见部署由 Web、Discord bot 和定时任务组成。

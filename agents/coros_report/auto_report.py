@@ -21,6 +21,8 @@ from src.runtime.memory import (
     update_agent_memory,
 )
 from src.runtime.scheduler import add_interval_job
+from src.runtime.prompt_skills import active_skill
+from src.runtime.runtime_settings import automation_enabled
 from agents.coros_report.personal_bests import update_personal_bests_from_tool_results
 
 
@@ -401,7 +403,7 @@ async def generate_activity_report(
     return await _with_timeout(
         "llm_report_generation",
         complete_text(
-            REPORT_SYSTEM_PROMPT,
+            active_skill("coach", "ShadowRunner", REPORT_SYSTEM_PROMPT).content,
             f"""
 User request:
 {user_request}
@@ -430,12 +432,7 @@ async def generate_auto_activity_report(activity: dict[str, Any]) -> str:
 
 
 def _auto_report_enabled() -> bool:
-    return os.getenv("COROS_AUTO_REPORT_ENABLED", "true").lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return automation_enabled("auto_report")
 
 
 def _send_on_first_run() -> bool:
@@ -535,6 +532,8 @@ async def check_and_send_coros_auto_report(
     force_send: bool = False,
 ) -> str:
     global _job_running
+    if not force_send and not _auto_report_enabled():
+        return "COROS auto report skipped: automation is disabled."
     if _job_running:
         return "COROS auto report skipped: previous job is still running."
 
@@ -620,14 +619,12 @@ async def _scheduled_check(client: discord.Client) -> None:
 
 
 def register_coros_auto_report(client: discord.Client) -> None:
-    if not _auto_report_enabled():
-        _log_auto_report("scheduler_disabled")
-        return
-
     add_interval_job(
         "coros-auto-report",
         _scheduled_check,
         _poll_minutes(),
         args=[client],
     )
-    _log_auto_report(f"scheduler_started poll_minutes={_poll_minutes()}")
+    _log_auto_report(
+        f"scheduler_started poll_minutes={_poll_minutes()} enabled={_auto_report_enabled()}"
+    )

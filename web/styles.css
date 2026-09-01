@@ -1646,3 +1646,58 @@ button {
   border-color: var(--line);
   color: var(--ink);
 }
+
+/* 设置页：像设备控制面板，不用卡片墙。 */
+.settings-page { min-height: 100%; overflow-y: auto; }
+.settings-shell { width: min(920px, calc(100% - 40px)); margin: 0 auto; padding: 56px 0 96px; }
+.settings-head { padding-bottom: 30px; border-bottom: 1.5px solid rgba(34, 38, 47, 0.18); }
+.settings-head h2 { margin: 5px 0 9px; font-size: clamp(28px, 5vw, 46px); line-height: 1.04; letter-spacing: 0; }
+.settings-head > p:last-child { max-width: 620px; margin: 0; color: var(--muted); line-height: 1.6; }
+.settings-auth, .settings-band { padding: 28px 0; border-bottom: 1.5px solid rgba(34, 38, 47, 0.18); }
+.settings-auth label, .skill-name > span, .skill-editor > span { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+.settings-auth > div, .skill-toolbar, .skill-actions { display: flex; gap: 10px; }
+.settings-auth input, .skill-name input, .skill-toolbar select, .skill-editor textarea {
+  width: 100%; border: 1.5px solid rgba(34,38,47,.22); border-radius: 6px; background: var(--panel); color: var(--ink); font: inherit;
+}
+.settings-auth input, .skill-name input, .skill-toolbar select { height: 42px; padding: 0 12px; }
+.settings-auth button, .skill-toolbar button, .skill-actions button, .upload-button {
+  height: 42px; padding: 0 15px; border: 1.5px solid var(--line); border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer; white-space: nowrap;
+}
+.settings-auth #statusText { min-height: 20px; margin: 10px 0 0; color: #20744a; font-size: 13px; }
+.settings-auth #statusText.error { color: #b42318; }
+.settings-band-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
+.settings-band-head h3 { margin: 4px 0 0; font-size: 22px; }
+.setting-row { min-height: 74px; display: flex; align-items: center; justify-content: space-between; gap: 30px; border-top: 1px solid rgba(34,38,47,.12); }
+.setting-row span { display: flex; flex-direction: column; gap: 5px; }
+.setting-row small { color: var(--muted); line-height: 1.45; }
+.switch {
+  appearance: none; flex: none; width: 46px; height: 26px; margin: 0; padding: 3px;
+  border: 1.5px solid rgba(34,38,47,.28); border-radius: 999px; background: rgba(34,38,47,.1); cursor: pointer;
+  transition: background .18s ease, border-color .18s ease;
+}
+.switch::before {
+  content: ""; display: block; width: 17px; height: 17px; border-radius: 50%; background: var(--panel);
+  box-shadow: 0 1px 4px rgba(34,38,47,.25); transition: transform .18s ease;
+}
+.switch:checked { border-color: var(--blue); background: var(--blue); }
+.switch:checked::before { transform: translateX(19px); }
+.segmented { display: inline-flex; padding: 3px; border: 1.5px solid rgba(34,38,47,.16); border-radius: 7px; }
+.segmented button { min-width: 74px; height: 31px; border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
+.segmented button.active { background: var(--line); color: #fff; }
+.skill-toolbar { margin-bottom: 18px; }
+.skill-toolbar select { flex: 1; }
+.skill-name { display: block; margin-bottom: 14px; }
+.skill-editor { display: block; }
+.skill-editor textarea { min-height: 360px; padding: 16px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.55; }
+.skill-actions { align-items: center; justify-content: flex-end; margin-top: 12px; }
+.upload-button { display: inline-flex; align-items: center; }
+.upload-button input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.skill-actions .primary-action { color: #fff; background: var(--blue); border-color: var(--blue); }
+@media (max-width: 680px) {
+  .settings-shell { width: min(100% - 28px, 920px); padding-top: 34px; }
+  .topbar { padding-inline: 14px; overflow-x: auto; }
+  .brand h1 { display: none; }
+  .settings-band-head, .skill-toolbar { align-items: stretch; flex-direction: column; }
+  .skill-actions { justify-content: stretch; }
+  .skill-actions > * { flex: 1; justify-content: center; }
+}

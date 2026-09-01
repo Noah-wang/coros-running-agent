@@ -1,3 +1,5 @@
+import os
+
 import discord
 
 from agents.coros_report.agent import list_available_coros_tools
@@ -13,10 +15,15 @@ from agents.coros_report.fit_archive import archive_fit_for_activities, render_r
 from agents.coros_report.knowledge import answer_running_question
 from agents.coros_report.coros_read_tools import COROS_READ_TOOLS
 from agents.coros_report.sleep_read_tools import SLEEP_READ_TOOLS
+from agents.coros_report.sleep_report import check_and_send_coros_sleep_report, register_coros_sleep_report
+from agents.coros_report.shadowrunner_prompt import REPORT_SYSTEM_PROMPT
+from agents.coros_report.sleep_report_prompt import SLEEP_REPORT_SYSTEM_PROMPT
 from agents.coros_report.personal_bests import format_personal_bests
 from src.runtime.capability import Capability, CommandContext, TextCommand
 from src.runtime.knowledge_sources import add_source, format_sources
 from agents.coros_report.video_knowledge import import_running_video_knowledge
+from src.runtime.prompt_skills import activate_skill, list_skills, reset_skill, save_skill
+from src.runtime.runtime_settings import automation_payload, set_automation_enabled
 
 
 DEFAULT_REPORT_REQUEST = "分析我最近一次运动，重点看配速、心率、恢复和下一次训练建议。"
@@ -205,6 +212,108 @@ async def _auto_report(context: CommandContext, _: str) -> None:
         await context.send(result)
 
 
+def _is_admin(context: CommandContext) -> bool:
+    allowed = {
+        item.strip()
+        for item in os.getenv("DISCORD_ADMIN_USER_IDS", "").split(",")
+        if item.strip()
+    }
+    author = getattr(context.message, "author", None)
+    return bool(allowed and str(getattr(author, "id", "")) in allowed)
+
+
+async def _coros_sleep_report(context: CommandContext, _: str) -> None:
+    await context.progress("正在生成最新睡眠与恢复报告...")
+    result = await check_and_send_coros_sleep_report(context.client, force_send=True)
+    if not result.endswith("sent."):
+        await context.send(result)
+
+
+async def _coros_config(context: CommandContext, argument: str) -> None:
+    if not _is_admin(context):
+        await context.send("只有 DISCORD_ADMIN_USER_IDS 中的管理员可以修改配置。")
+        return
+    parts = argument.strip().lower().split()
+    if not parts:
+        state = automation_payload()
+        await context.send(
+            f"自动训练报告：{state['auto_report']}\n自动睡眠报告：{state['sleep_report']}"
+        )
+        return
+    if len(parts) != 2 or parts[0] not in {"auto-report", "sleep-report"}:
+        await context.send(
+            "用法：!coros-config auto-report true 或 !coros-config sleep-report false"
+        )
+        return
+    key = "auto_report" if parts[0] == "auto-report" else "sleep_report"
+    try:
+        enabled = set_automation_enabled(key, parts[1])
+    except ValueError as exc:
+        await context.send(str(exc))
+        return
+    await context.send(f"{parts[0]} 已设置为 {str(enabled).lower()}，无需重启。")
+
+
+def _skill_defaults(kind: str) -> tuple[str, str]:
+    if kind == "coach":
+        return "ShadowRunner", REPORT_SYSTEM_PROMPT
+    if kind == "sleep":
+        return "Morning Recovery Coach", SLEEP_REPORT_SYSTEM_PROMPT
+    raise ValueError("Skill type must be coach or sleep.")
+
+
+async def _skill_config(context: CommandContext, argument: str) -> None:
+    if not _is_admin(context):
+        await context.send("只有 DISCORD_ADMIN_USER_IDS 中的管理员可以管理 Skill。")
+        return
+    parts = argument.strip().split(maxsplit=2)
+    if len(parts) < 2 or parts[0] not in {"list", "show", "activate", "reset", "import"}:
+        await context.send(
+            "用法：!skill list coach | !skill import coach <Markdown> | "
+            "!skill activate coach <id> | !skill reset coach"
+        )
+        return
+    action, kind = parts[0], parts[1].lower()
+    try:
+        default_name, default_content = _skill_defaults(kind)
+        if action in {"list", "show"}:
+            items = list_skills(
+                kind, default_name, default_content, include_content=action == "show"
+            )
+            if action == "show":
+                current = next(item for item in items if item["active"])
+                await context.send_chunks(
+                    f"**{current['name']}**\n~~~markdown\n{current['content']}\n~~~"
+                )
+            else:
+                await context.send(
+                    "\n".join(
+                        f"{'*' if item['active'] else '-'} {item['id']} v{item['version']}"
+                        for item in items
+                    )
+                )
+        elif action == "reset":
+            reset_skill(kind)
+            await context.send(f"{kind} 已恢复内置 Skill。")
+        elif action == "activate":
+            if len(parts) < 3:
+                raise ValueError("请提供 Skill id。")
+            if parts[2] == f"{kind}:built-in":
+                reset_skill(kind)
+            else:
+                activate_skill(kind, parts[2])
+            await context.send(f"{kind} Skill 已启用。")
+        else:
+            markdown = parts[2] if len(parts) == 3 else ""
+            if context.attachments:
+                raise ValueError("附件导入请使用网页设置页；Discord 当前支持粘贴 Markdown。")
+            skill = save_skill(kind, markdown)
+            activate_skill(kind, skill.id)
+            await context.send(f"已保存并启用 {skill.name} v{skill.version}。")
+    except (ValueError, StopIteration) as exc:
+        await context.send(f"Skill 操作失败：{exc}")
+
+
 def build_coros_capability() -> Capability:
     return Capability(
         name="coros-report",
@@ -316,6 +425,27 @@ def build_coros_capability() -> Capability:
                 writes=True,
                 expose_as_tool=False,
             ),
+            TextCommand(
+                "coros-sleep-report",
+                "强制生成睡眠报告",
+                _coros_sleep_report,
+                writes=True,
+                expose_as_tool=False,
+            ),
+            TextCommand(
+                "coros-config",
+                "查看或修改自动化开关",
+                _coros_config,
+                writes=True,
+                expose_as_tool=False,
+            ),
+            TextCommand(
+                "skill",
+                "管理教练和睡眠 Prompt Skill",
+                _skill_config,
+                writes=True,
+                expose_as_tool=False,
+            ),
         ),
-        startup_handlers=(register_coros_auto_report,),
+        startup_handlers=(register_coros_auto_report, register_coros_sleep_report),
     )

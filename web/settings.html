@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>COROS Running Agent · Settings</title>
+    <link rel="icon" type="image/png" href="/assets/coros-running-agent-avatar.png">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body class="settings-page">
+    <header class="topbar">
+      <div class="brand"><span class="mark"><img src="/assets/coros-running-agent-avatar.png" alt=""></span><h1>COROS Running Agent</h1></div>
+      <nav class="topnav">
+        <a href="/" data-i18n="nav.chat">Chat</a><a href="/data" data-i18n="nav.data">Data</a>
+        <a href="/tech" data-i18n="nav.tech">Tech</a><a href="/settings" class="active" data-i18n="nav.settings">Settings</a>
+      </nav>
+    </header>
+    <main class="settings-shell">
+      <header class="settings-head">
+        <p class="eyebrow" data-i18n="settings.eyebrow">Agent control plane</p>
+        <h2 data-i18n="settings.title">Settings & Prompt Skills</h2>
+        <p data-i18n="settings.subtitle">Changes are stored locally and take effect without restarting the Agent.</p>
+      </header>
+      <section class="settings-auth" id="authPanel">
+        <label for="adminToken" data-i18n="settings.token">Administrator token</label>
+        <div><input id="adminToken" type="password" autocomplete="current-password"><button id="unlockButton" type="button" data-i18n="settings.unlock">Unlock</button></div>
+        <p id="statusText" role="status"></p>
+      </section>
+      <div id="settingsContent" hidden>
+        <section class="settings-band">
+          <div class="settings-band-head"><div><p class="eyebrow" data-i18n="settings.automation">Automations</p><h3 data-i18n="settings.delivery">Automatic delivery</h3></div></div>
+          <label class="setting-row"><span><strong data-i18n="settings.workout">Workout report</strong><small data-i18n="settings.workoutHelp">Detect stable activities and send a full review.</small></span><input id="autoReportToggle" type="checkbox" class="switch"></label>
+          <label class="setting-row"><span><strong data-i18n="settings.sleep">Sleep report</strong><small data-i18n="settings.sleepHelp">Send a morning sleep and recovery review when data is ready.</small></span><input id="sleepReportToggle" type="checkbox" class="switch"></label>
+        </section>
+        <section class="settings-band">
+          <div class="settings-band-head">
+            <div><p class="eyebrow">Prompt Skills</p><h3 data-i18n="settings.skills">Coach instructions</h3></div>
+            <div class="segmented"><button type="button" class="active" data-kind="coach">Coach</button><button type="button" data-kind="sleep">Sleep</button></div>
+          </div>
+          <div class="skill-toolbar">
+            <select id="skillSelect" aria-label="Skill"></select>
+            <button type="button" id="activateSkill" data-i18n="settings.activate">Activate</button>
+            <button type="button" id="resetSkill" data-i18n="settings.reset">Use built-in</button>
+          </div>
+          <label class="skill-name"><span data-i18n="settings.skillName">Skill name</span><input id="skillName" maxlength="80"></label>
+          <label class="skill-editor"><span data-i18n="settings.markdown">Markdown prompt</span><textarea id="skillContent" spellcheck="false"></textarea></label>
+          <div class="skill-actions">
+            <label class="upload-button"><input id="skillFile" type="file" accept=".md,text/markdown,text/plain"><span data-i18n="settings.upload">Upload .md</span></label>
+            <button type="button" id="saveSkill" class="primary-action" data-i18n="settings.save">Save and activate</button>
+          </div>
+        </section>
+      </div>
+    </main>
+    <script src="/settings.js" type="module"></script>
+  </body>
+</html>

@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import hmac
 import json
 import os
 import re
@@ -15,10 +16,19 @@ from dotenv import load_dotenv
 
 from agents.coros_report.activity_browser import summarize_activity
 from agents.coros_report.auto_report import activity_key, recent_coros_activities
+from agents.coros_report.shadowrunner_prompt import REPORT_SYSTEM_PROMPT
+from agents.coros_report.sleep_report_prompt import SLEEP_REPORT_SYSTEM_PROMPT
 from src.api.i18n import localize
 from src.runtime import ratelimit
 from src.runtime.flow_map import module_payload
 from src.runtime.trace import log_event
+from src.runtime.prompt_skills import (
+    activate_skill,
+    list_skills,
+    reset_skill,
+    save_skill,
+)
+from src.runtime.runtime_settings import automation_payload, set_automation_enabled
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -274,6 +284,23 @@ def _json_response(payload: Any, status: HTTPStatus = HTTPStatus.OK) -> tuple[in
     return status.value, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8"
 
 
+def _settings_payload(include_content: bool) -> dict[str, Any]:
+    return {
+        "automations": automation_payload(),
+        "skills": {
+            "coach": list_skills(
+                "coach", "ShadowRunner", REPORT_SYSTEM_PROMPT, include_content=include_content
+            ),
+            "sleep": list_skills(
+                "sleep",
+                "Morning Recovery Coach",
+                SLEEP_REPORT_SYSTEM_PROMPT,
+                include_content=include_content,
+            ),
+        },
+    }
+
+
 class WebHandler(BaseHTTPRequestHandler):
     server_version = "CorosRunningAgentWeb/0.1"
 
@@ -323,11 +350,23 @@ class WebHandler(BaseHTTPRequestHandler):
                 include_body=include_body,
             )
             return
+        if parsed.path == "/api/settings":
+            if not self._settings_authorized():
+                self._send(
+                    *_json_response({"error": "Administrator token required"}, HTTPStatus.UNAUTHORIZED),
+                    include_body=include_body,
+                )
+                return
+            self._send(*_json_response(_settings_payload(include_content=True)), include_body=include_body)
+            return
         if parsed.path == "/data":
             self._serve_static("/data.html", include_body=include_body)
             return
         if parsed.path == "/tech":
             self._serve_static("/tech.html", include_body=include_body)
+            return
+        if parsed.path == "/settings":
+            self._serve_static("/settings.html", include_body=include_body)
             return
         if parsed.path.startswith("/media/photo-memory/"):
             self._serve_photo_media(parsed.path, include_body=include_body)
@@ -351,6 +390,9 @@ class WebHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/settings":
+            self._handle_settings_post()
+            return
         if parsed.path not in {"/api/chat", "/api/chat/stream"}:
             self._send(*_json_response({"error": "Endpoint not found"}, HTTPStatus.NOT_FOUND))
             return
@@ -401,6 +443,48 @@ class WebHandler(BaseHTTPRequestHandler):
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                 )
             )
+
+    def _settings_authorized(self) -> bool:
+        expected = os.getenv("WEB_SETTINGS_TOKEN", "").strip()
+        if not expected:
+            return False
+        header = self.headers.get("Authorization", "")
+        provided = header[7:].strip() if header.startswith("Bearer ") else ""
+        return bool(provided and hmac.compare_digest(provided, expected))
+
+    def _handle_settings_post(self) -> None:
+        if not self._settings_authorized():
+            self._send(
+                *_json_response({"error": "Administrator token required"}, HTTPStatus.UNAUTHORIZED)
+            )
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > 80 * 1024:
+                raise ValueError("Request body must be between 1 byte and 80 KB.")
+            data = json.loads(self.rfile.read(length).decode("utf-8"))
+            action = str(data.get("action", ""))
+            if action == "set_automation":
+                set_automation_enabled(str(data.get("name", "")), data.get("enabled"))
+            elif action == "save_skill":
+                kind = str(data.get("kind", ""))
+                skill = save_skill(kind, str(data.get("content", "")), str(data.get("name", "")))
+                if bool(data.get("activate", True)):
+                    activate_skill(kind, skill.id)
+            elif action == "activate_skill":
+                kind = str(data.get("kind", ""))
+                skill_id = str(data.get("skill_id", ""))
+                if skill_id == f"{kind}:built-in":
+                    reset_skill(kind)
+                else:
+                    activate_skill(kind, skill_id)
+            elif action == "reset_skill":
+                reset_skill(str(data.get("kind", "")))
+            else:
+                raise ValueError("Unsupported settings action.")
+            self._send(*_json_response(_settings_payload(include_content=True)))
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            self._send(*_json_response({"error": str(exc)}, HTTPStatus.BAD_REQUEST))
 
     def _conversation_id(self, data: dict[str, Any]) -> str:
         raw = str(data.get("session_id", "")).strip()[:64]
