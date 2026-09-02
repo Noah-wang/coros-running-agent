@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import os
 from datetime import UTC, date, datetime, time, timedelta
@@ -19,6 +20,7 @@ from src.runtime.runtime_settings import automation_enabled
 
 AGENT_NAME = "coros-report"
 SLEEP_REPORT_CACHE_KEY = "sleep_report_sent_dates"
+SLEEP_STABILITY_CACHE_KEY = "sleep_report_stability"
 _job_running = False
 
 
@@ -106,6 +108,19 @@ def _poll_minutes() -> int:
 
 def _check_timeout_seconds() -> int:
     return _env_int("COROS_SLEEP_REPORT_TIMEOUT_SECONDS", 240, minimum=30)
+
+
+def _required_stable_checks() -> int:
+    """要连续几次读到同样的数据，才认为「睡醒了」。
+
+    原来的判定是「有睡眠数据就发」，但 COROS 在人还睡着的时候就会同步出
+    部分数据——于是报告在还没睡醒的时候就发出去了，数字后来还会变。
+
+    「有数据」和「数据不再变了」是两件事。这里要的是后者：
+    连续 N 次读到完全一样的睡眠指标，才判定这一觉结束了。
+    N=2 配合 30 分钟轮询，等于数据稳定一小时后才发。
+    """
+    return _env_int("COROS_SLEEP_REPORT_STABLE_CHECKS", 2, minimum=1)
 
 
 def _coros_tool_timeout_seconds() -> int:
@@ -247,6 +262,93 @@ def _contains_sleep_signal(value: Any) -> bool:
     return False
 
 
+# 指纹只看**睡眠本身**的两个工具。
+#
+# 踩过两个坑，都会让功能彻底失效：
+#
+# 1. COROS 的返回是 MCP 结构，指标全在 content[0].text 的纯文本里，
+#    不是结构化字段。按键名去匹配一次都命中不了，指纹恒为空。
+# 2. queryDailyHealthData 里有 Steps 和 Calories，**全天都在变**。
+#    把它算进指纹，数据就永远「稳定不下来」，报告永远发不出去——
+#    而且不报错，只是安静地一直不发。
+#
+# queryRecoveryStatus 和 queryTrainingLoadAssessment 同理：它们跟着当天
+# 的活动更新，和「这一觉睡完没有」无关。
+SIGNATURE_TOOLS = ("querySleepData", "querySleepHrv")
+
+
+def _tool_text(item: dict[str, Any]) -> str:
+    """把一个 MCP 工具返回里的文本抠出来。"""
+    result = item.get("result")
+    if isinstance(result, str):
+        return result
+    if not isinstance(result, dict):
+        return ""
+    parts: list[str] = []
+    for block in result.get("content") or []:
+        if isinstance(block, dict) and block.get("type") == "text":
+            parts.append(str(block.get("text", "")))
+    return "\n".join(parts)
+
+
+def _sleep_signature(tool_results: list[dict[str, Any]]) -> str:
+    """把这一轮读到的睡眠数据压成一个稳定字符串。"""
+    texts: list[str] = []
+    for item in tool_results:
+        if not item.get("ok"):
+            continue
+        tool = item.get("tool")
+        name = tool.get("name") if isinstance(tool, dict) else tool
+        if name in SIGNATURE_TOOLS:
+            texts.append(f"{name}:{_tool_text(item)}")
+    if not any(t.split(":", 1)[1].strip() for t in texts):
+        return ""
+    return hashlib.sha256("|".join(sorted(texts)).encode("utf-8")).hexdigest()[:16]
+
+
+def _stability_cache() -> dict[str, Any]:
+    cache = get_agent_cache(AGENT_NAME).get(SLEEP_STABILITY_CACHE_KEY, {})
+    return cache if isinstance(cache, dict) else {}
+
+
+def _mark_stability(day: date, signature: str, unchanged: int) -> None:
+    update_agent_cache(
+        AGENT_NAME,
+        {
+            SLEEP_STABILITY_CACHE_KEY: {
+                "date": day.isoformat(),
+                "signature": signature,
+                "unchanged_checks": unchanged,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        },
+    )
+
+
+def _sleep_stable_enough(
+    day: date, tool_results: list[dict[str, Any]]
+) -> tuple[bool, str]:
+    """睡眠数据是否已经连续 N 次没有变化。"""
+    signature = _sleep_signature(tool_results)
+    if not signature:
+        return False, "no sleep metrics to compare yet"
+
+    state = _stability_cache()
+    same_day = state.get("date") == day.isoformat()
+    if not same_day or state.get("signature") != signature:
+        # 第一次见到这份数据（或者数据刚变过），计数归零重新观察
+        _mark_stability(day, signature, 0)
+        reason = "sleep data changed" if same_day else "first sighting today"
+        return False, f"{reason}; restarting stability count"
+
+    unchanged = int(state.get("unchanged_checks", 0)) + 1
+    _mark_stability(day, signature, unchanged)
+    required = _required_stable_checks()
+    if unchanged < required:
+        return False, f"sleep data unchanged {unchanged}/{required} checks"
+    return True, f"sleep data unchanged {unchanged}/{required} checks"
+
+
 def _sleep_data_available(tool_results: list[dict[str, Any]]) -> bool:
     for item in tool_results:
         if not item.get("ok"):
@@ -324,6 +426,12 @@ async def check_and_send_coros_sleep_report(
                 _log_sleep_report(f"sleep_data_unavailable date={target_day.isoformat()}")
                 return "COROS sleep report skipped: sleep data not available yet."
             _log_sleep_report(f"sleep_data_lookup_end date={target_day.isoformat()}")
+
+            # 有数据 ≠ 睡完了。要连续几次读到一样的指标才发。
+            stable, reason = _sleep_stable_enough(target_day, tool_results)
+            _log_sleep_report(f"sleep_stability date={target_day.isoformat()} stable={stable} reason={reason}")
+            if not stable:
+                return f"COROS sleep report skipped: {reason}."
 
         await channel.send(f"早上好，正在分析 {target_day.isoformat()} 的 COROS 睡眠与恢复数据...")
         report = await generate_sleep_report(target_day, tool_results)
