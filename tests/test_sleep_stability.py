@@ -95,3 +95,58 @@ def test_no_metrics_is_not_stable():
     day = sr.date(2026, 8, 31)
     stable, _ = sr._sleep_stable_enough(day, [{"ok": False, "tool": {"name": "querySleepData"}, "result": None}])
     assert stable is False
+
+
+# ── 报告哪一天 ────────────────────────────────────────────────────────
+
+def _has_sleep(day_label: str):
+    return [{
+        "ok": True,
+        "tool": {"name": "querySleepData"},
+        "result": {"content": [{"type": "text", "text":
+            f"Sleep Data\n{day_label}\nSleep Score: 82\nMain Sleep: 6h 57min"}]},
+    }]
+
+
+def _no_sleep():
+    """COROS 当天没睡也会返回一个带标题的空壳，这是真实返回形状。"""
+    return [{
+        "ok": True,
+        "tool": {"name": "querySleepData"},
+        "result": {"content": [{"type": "text", "text":
+            "Sleep Data\n========\nNote: each record below is dated by its wake-up day."
+            "\n\n2026-09-03\nNaps Total: 0 min"}]},
+    }]
+
+
+def test_empty_shell_is_not_counted_as_sleep():
+    """标题里就有 "Sleep"，宽松匹配会误判成有数据——报告会声称在讲一个空的日子。"""
+    assert sr._has_main_sleep(_no_sleep()) is False
+    assert sr._has_main_sleep(_has_sleep("2026-09-03")) is True
+
+
+def test_prefers_today_because_coros_dates_by_wakeup_day(monkeypatch):
+    """COROS 按醒来那天标日期，所以早上跑的时候要问「今天」。"""
+    import asyncio
+    today = sr.date(2026, 9, 3)
+    monkeypatch.setattr(sr, "_today", lambda: today)
+    monkeypatch.setattr(sr, "_collect_sleep_tool_results",
+                        lambda d: _async(_has_sleep("2026-09-03")))
+    day, results = asyncio.run(sr._resolve_sleep_day())
+    assert day == today
+    assert results is not None
+
+
+def test_falls_back_to_yesterday_when_today_not_synced(monkeypatch):
+    """今天的还没从手表同步上来时，退回昨天——总比不发强。"""
+    import asyncio
+    today = sr.date(2026, 9, 3)
+    monkeypatch.setattr(sr, "_today", lambda: today)
+    monkeypatch.setattr(sr, "_collect_sleep_tool_results", lambda d: _async(_no_sleep()))
+    day, results = asyncio.run(sr._resolve_sleep_day())
+    assert day == sr.date(2026, 9, 2)
+    assert results is None
+
+
+async def _async(value):
+    return value

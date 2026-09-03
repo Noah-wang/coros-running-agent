@@ -84,8 +84,50 @@ def _today() -> date:
     return datetime.now(_timezone()).date()
 
 
-def _target_sleep_day() -> date:
+def _fallback_sleep_day() -> date:
     return _today() - timedelta(days=1)
+
+
+def _has_main_sleep(tool_results: list[dict[str, Any]]) -> bool:
+    """这一天到底有没有一次主睡眠。
+
+    不能用 _sleep_data_available 来判断：它只要文本里出现 "sleep" 就算数，
+    而 querySleepData 即使当天没睡也会返回一个带标题的空壳——
+    「Sleep Data / 2026-09-03 / Naps Total: 0 min」，标题里的 Sleep 就足以让它返回真。
+    实测踩到：这个假阳性会让报告声称在讲今天，实际今天一条主睡眠都没有。
+
+    主睡眠在返回里固定写作 "Main Sleep:"，用它判断才准。
+    """
+    for item in tool_results:
+        if not item.get("ok"):
+            continue
+        tool = item.get("tool")
+        name = tool.get("name") if isinstance(tool, dict) else tool
+        if name == "querySleepData":
+            return "Main Sleep:" in _tool_text(item)
+    return False
+
+
+async def _resolve_sleep_day() -> tuple[date, list[dict[str, Any]] | None]:
+    """挑要报告哪一天的睡眠，顺带把已经取到的数据带回去。
+
+    **COROS 按「醒来那天」给睡眠记录标日期**（它自己的返回里写了：
+    each record below is dated by its wake-up day）。所以早上跑的时候，
+    刚睡完的那一觉标的是**今天**，不是昨天。
+
+    原来这里写死 `今天 - 1`，于是早上收到的报告讲的是前天晚上那一觉。
+
+    今天的数据可能还没从手表同步上来，那就退回昨天——总比不发强。
+    退回时也把数据一起返回，省掉重复的一轮 COROS 调用。
+    """
+    today = _today()
+    results = await _collect_sleep_tool_results(today)
+    if _has_main_sleep(results):
+        return today, results
+
+    fallback = _fallback_sleep_day()
+    _log_sleep_report(f"sleep_day_fallback from={today.isoformat()} to={fallback.isoformat()}")
+    return fallback, None
 
 
 def _date_text(day: date) -> str:
@@ -391,7 +433,17 @@ async def generate_sleep_report(
     day: date | None = None,
     tool_results: list[dict[str, Any]] | None = None,
 ) -> str:
-    target_day = day or _target_sleep_day()
+    """生成某一天的睡眠报告。day 留空表示「最近一次能拿到数据的睡眠」。
+
+    留空时走 _resolve_sleep_day：优先今天（COROS 按醒来那天标日期），
+    今天还没同步就退回昨天。Agent 的 get_sleep_report 工具走的就是这条路。
+    """
+    if day is None:
+        target_day, resolved = await _resolve_sleep_day()
+        if tool_results is None:
+            tool_results = resolved
+    else:
+        target_day = day
     if tool_results is None:
         tool_results = await _collect_sleep_tool_results(target_day)
     memory = format_memory_for_prompt(AGENT_NAME)
@@ -429,10 +481,6 @@ async def check_and_send_coros_sleep_report(
     if not force_send and not _daily_job_due():
         return "COROS sleep report skipped: not scheduled time yet."
 
-    target_day = _target_sleep_day()
-    if not force_send and _has_sent(target_day):
-        return "COROS sleep report skipped: already sent today."
-
     new_trace("cron")
     _job_running = True
     try:
@@ -443,9 +491,17 @@ async def check_and_send_coros_sleep_report(
         _log_sleep_report("channel_lookup_end")
 
         tool_results: list[dict[str, Any]] | None = None
-        if not force_send:
-            _log_sleep_report(f"sleep_data_lookup_start date={target_day.isoformat()}")
-            tool_results = await _collect_sleep_tool_results(target_day)
+        if force_send:
+            target_day = _today()
+        else:
+            # 哪一天要先问过 COROS 才知道——今天的数据同步上来了就报今天的。
+            _log_sleep_report("sleep_day_resolve_start")
+            target_day, tool_results = await _resolve_sleep_day()
+            if _has_sent(target_day):
+                return f"COROS sleep report skipped: already sent for {target_day.isoformat()}."
+
+            if tool_results is None:
+                tool_results = await _collect_sleep_tool_results(target_day)
             if not _sleep_data_available(tool_results):
                 _log_sleep_report(f"sleep_data_unavailable date={target_day.isoformat()}")
                 return "COROS sleep report skipped: sleep data not available yet."
