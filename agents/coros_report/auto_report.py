@@ -12,6 +12,7 @@ from src.runtime.trace import new_trace
 from agents.coros_report.fit_archive import archive_fit_for_activities, render_route_map_for_activity
 from agents.coros_report.shadowrunner_prompt import REPORT_SYSTEM_PROMPT
 from src.integrations.coros_mcp import call_coros_tool
+from src.integrations.discord_forum import create_report_post
 from src.runtime.llm import complete_text
 from src.runtime.memory import (
     format_memory_for_prompt,
@@ -47,6 +48,41 @@ def _activity_log_summary(activity: dict[str, Any]) -> str:
         f"startTimestamp={activity.get('startTimestamp')} "
         f"endTimestamp={activity.get('endTimestamp')}"
     )
+
+
+def _activity_title(activity: dict[str, Any]) -> str:
+    day = str(activity.get("date") or "").strip()
+    if not day:
+        timestamp = _timestamp(activity)
+        if timestamp > 0:
+            day = datetime.fromtimestamp(timestamp, tz=UTC).astimezone().date().isoformat()
+        else:
+            day = date.today().isoformat()
+    sport = str(activity.get("sportName") or "运动").strip()
+    sport_names = {
+        "indoor run": "跑步",
+        "run": "跑步",
+        "running": "跑步",
+        "trail run": "越野跑",
+        "hike": "徒步",
+        "hiking": "徒步",
+        "walk": "步行",
+        "walking": "步行",
+        "bike": "骑行",
+        "cycling": "骑行",
+        "swim": "游泳",
+        "swimming": "游泳",
+        "strength": "力量训练",
+    }
+    sport = sport_names.get(sport.casefold(), sport)
+    distance_text = ""
+    try:
+        distance = float(activity.get("distanceKm"))
+        if distance > 0:
+            distance_text = f" {distance:g}KM"
+    except (TypeError, ValueError):
+        pass
+    return f"{day} {sport}{distance_text}"
 
 
 def _log_auto_report(message: str) -> None:
@@ -583,16 +619,22 @@ async def check_and_send_coros_auto_report(
             _clear_candidate()
             return "COROS auto report initialized with latest activity."
 
-        _log_auto_report("discord_detected_message_start")
-        await channel.send("检测到新的 COROS 运动，正在自动生成报告...")
-        _log_auto_report("discord_detected_message_end")
         _log_auto_report("report_generation_start")
         report = await generate_auto_activity_report(activity)
         _log_auto_report(f"report_generation_end chars={len(report)}")
-        _log_auto_report("discord_report_send_start")
-        await _send_chunks(channel, report)
-        _log_auto_report("discord_report_send_end")
-        await _send_route_map_if_available(channel, activity)
+        _log_auto_report("discord_forum_post_start")
+        forum_post = await create_report_post(
+            client,
+            _activity_title(activity),
+            report,
+            "DISCORD_COROS_ACTIVITY_FORUM_TAG_ID",
+        )
+        destination = forum_post.thread if forum_post is not None else channel
+        if forum_post is None:
+            await channel.send("检测到新的 COROS 运动，已自动生成报告。")
+            await _send_chunks(channel, report)
+        _log_auto_report("discord_forum_post_end")
+        await _send_route_map_if_available(destination, activity)
         mark_activity_reported(activity)
         _clear_candidate()
         _log_auto_report("mark_activity_reported")

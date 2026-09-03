@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -10,6 +11,7 @@ import discord
 
 from agents.coros_report.sleep_report_prompt import SLEEP_REPORT_SYSTEM_PROMPT
 from src.integrations.coros_mcp import call_coros_tool
+from src.integrations.discord_forum import create_report_post
 from src.runtime.llm import complete_text
 from src.runtime.memory import format_memory_for_prompt, get_agent_cache, update_agent_cache
 from src.runtime.scheduler import add_interval_job
@@ -363,6 +365,28 @@ def _sleep_data_available(tool_results: list[dict[str, Any]]) -> bool:
     return False
 
 
+def _sleep_duration_text(tool_results: list[dict[str, Any]], report: str = "") -> str:
+    text = "\n".join([*(_tool_text(item) for item in tool_results), report])
+    patterns = (
+        r"(?:total\s+sleep|sleep\s+duration|睡眠时长|睡眠总量|总睡眠)\D{0,12}(\d{1,2})\s*(?:h|hr|hour|小时)\s*(\d{1,2})?\s*(?:m|min|minute|分钟)?",
+        r"(?:total\s+sleep|sleep\s+duration|睡眠时长|睡眠总量|总睡眠)\D{0,12}(\d{1,3})\s*(?:m|min|minute|分钟)",
+    )
+    match = re.search(patterns[0], text, flags=re.IGNORECASE)
+    if match:
+        hours = int(match.group(1))
+        minutes = int(match.group(2) or 0)
+        return f"{hours}小时{minutes:02d}分"
+    match = re.search(patterns[1], text, flags=re.IGNORECASE)
+    if match:
+        total_minutes = int(match.group(1))
+        return f"{total_minutes // 60}小时{total_minutes % 60:02d}分"
+    return "时长待确认"
+
+
+def _sleep_title(day: date, tool_results: list[dict[str, Any]], report: str) -> str:
+    return f"{day.isoformat()} 睡眠 {_sleep_duration_text(tool_results, report)}"
+
+
 async def generate_sleep_report(
     day: date | None = None,
     tool_results: list[dict[str, Any]] | None = None,
@@ -433,9 +457,17 @@ async def check_and_send_coros_sleep_report(
             if not stable:
                 return f"COROS sleep report skipped: {reason}."
 
-        await channel.send(f"早上好，正在分析 {target_day.isoformat()} 的 COROS 睡眠与恢复数据...")
         report = await generate_sleep_report(target_day, tool_results)
-        await _send_chunks(channel, report)
+        results = tool_results or []
+        forum_post = await create_report_post(
+            client,
+            _sleep_title(target_day, results, report),
+            report,
+            "DISCORD_COROS_SLEEP_FORUM_TAG_ID",
+        )
+        if forum_post is None:
+            await channel.send(f"早上好，已完成 {target_day.isoformat()} 的 COROS 睡眠与恢复分析。")
+            await _send_chunks(channel, report)
         _mark_sent(target_day)
         _log_sleep_report(f"mark_sleep_report_sent date={target_day.isoformat()}")
         return "COROS sleep report sent."

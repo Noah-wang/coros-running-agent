@@ -229,7 +229,8 @@ WEB_AGENT_MODE=real uv run python -m src.api.web_server --host 127.0.0.1 --port 
 uv run python -m src.main
 ```
 
-需要 `DISCORD_BOT_TOKEN` 和 `DISCORD_RUNNING_CHANNEL_ID`。
+需要 `DISCORD_BOT_TOKEN` 和 `DISCORD_RUNNING_CHANNEL_ID`。如需把自动报告整理为论坛帖子，
+再配置论坛频道以及运动、睡眠两个标签的 ID；未配置时仍发送到运行频道。
 **写操作只在 Discord 开放**，Web 入口是只读的——原因见[安全设计](#安全设计)。
 
 ---
@@ -434,6 +435,9 @@ COROS_MCP_CLIENT=mcp-remote@0.1.38 # 固定版本，别用不带版本的写法�
 ```bash
 DISCORD_BOT_TOKEN=...
 DISCORD_RUNNING_CHANNEL_ID=...     # 只在这个频道响应
+DISCORD_REPORT_FORUM_CHANNEL_ID=... # 可选：自动报告发布到该论坛
+DISCORD_COROS_ACTIVITY_FORUM_TAG_ID=... # 运动帖标签
+DISCORD_COROS_SLEEP_FORUM_TAG_ID=...    # 睡眠帖标签
 
 COROS_AUTO_REPORT_ENABLED=true
 COROS_AUTO_REPORT_POLL_MINUTES=15
