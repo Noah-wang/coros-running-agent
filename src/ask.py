@@ -132,9 +132,10 @@ def _format_usage(days: int = 30) -> str:
             f"注意：{'、'.join(data['unpriced_models'])} 没有配置单价，"
             "**没有计入上面的合计**，实际花费高于这个数。"
         )
+    lines.append(data["pricing_note"])
     lines.append(
-        "费用按配置的单价估算，不是账单。走中转站或有折扣时会有出入——"
-        "在 .env 里用 LLM_PRICING 按实际单价覆盖。"
+        "这是估算不是账单：你走的是中转站，实际单价以中转站为准。"
+        "要更准就在 .env 里用 LLM_PRICING 覆盖。"
     )
     return "\n".join(lines)
 

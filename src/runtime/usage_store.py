@@ -27,14 +27,30 @@ _LOCK = threading.RLock()
 # 只留最近这么多天。一天一个模型一条记录，60 天不会让文件变大到需要担心。
 KEEP_DAYS = 60
 
-# 默认单价：每百万 token 的价格，单位见 CURRENCY。
+# 默认单价：每百万 token，单位见 CURRENCY。来自 DeepSeek 官方公开价。
 #
-# **这些是占位值，不保证和你的账单一致。** 中转站、促销、缓存命中折扣
-# 都会让实际价格不同。用 LLM_PRICING 覆盖，格式：
-#     LLM_PRICING={"deepseek-chat":{"input":0.27,"output":1.10}}
+# **能看量级和趋势，不能用来对账**，有两个已知偏差：
+#
+# 1. **各来源对当前价格不一致。** 多数来源（2026 年 7~8 月核对）给的是
+#    V4-Flash $0.14 / $0.28；有来源（9/3 核对）称已涨价并改成分时计价，
+#    高峰是平峰两倍。这里取被引用最广的那组。
+# 2. **缓存命中另算。** DeepSeek 对命中缓存的输入单独定价（远低于未命中），
+#    这里没区分，所以估算通常**偏高**。
+#
+# 走中转站时以中转站的实际单价为准，用 LLM_PRICING 覆盖。
+#
+# 来源：https://api-docs.deepseek.com/quick_start/pricing
+PRICING_NOTE = (
+    "单价按 DeepSeek 官方公开价估算，未区分缓存命中（实际通常更低）；"
+    "走中转站时以中转站计费为准。"
+)
+
 DEFAULT_PRICING: dict[str, dict[str, float]] = {
-    "deepseek-chat": {"input": 0.27, "output": 1.10},
-    "deepseek-reasoner": {"input": 0.55, "output": 2.19},
+    "deepseek-v4-flash": {"input": 0.14, "output": 0.28},
+    "deepseek-v4-pro": {"input": 0.435, "output": 0.87},
+    # qwen3.7-text-embedding 故意不填：没查到官方公开的每 token 单价。
+    # 编一个数会让合计看起来精确而实际是错的——宁可显示「未配单价」，
+    # 并在合计旁注明「实际花费高于这个数」。
 }
 
 
@@ -144,7 +160,7 @@ def summary(days: int = 30) -> dict[str, Any]:
     today = date.today().isoformat()
     today_bucket = daily.get(today, {})
     return {
-        "active_model": os.getenv("LLM_MODEL") or os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+        "active_model": os.getenv("LLM_MODEL") or os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
         "embedding_model": os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
         "window_days": len(recent),
         "by_model": by_model,
@@ -159,4 +175,5 @@ def summary(days: int = 30) -> dict[str, Any]:
         "currency": currency(),
         "unpriced_models": unpriced,
         "pricing_used": {m: table[m] for m in by_model if m in table},
+        "pricing_note": PRICING_NOTE if not os.getenv("LLM_PRICING", "").strip() else "单价来自 LLM_PRICING 配置。",
     }
