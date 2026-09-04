@@ -76,6 +76,24 @@ async def complete_text(
     return content
 
 
+# 哪些模型不支持 tool_choice="required"，探测一次就记住。
+#
+# 不写死模型名单：名单会过期，而且中转站可以把任何 ID 映射到任何后端。
+# 让第一次失败告诉我们答案，之后不再重复付这次代价。
+_REQUIRED_UNSUPPORTED: set[str] = set()
+
+
+def _rejects_required(exc: Exception) -> bool:
+    """这个报错是不是「不支持 required」，而不是别的问题。
+
+    原来这里是裸的 except Exception——任何失败都退回 auto，
+    于是鉴权失败、限流、schema 写错都会被当成「不支持 required」悄悄降级，
+    真正的错误被这层回退盖住了。
+    """
+    text = str(exc).lower()
+    return "tool_choice" in text and ("required" in text or "not support" in text)
+
+
 async def complete_with_tools(
     messages: Sequence[dict[str, Any]],
     tools: Sequence[dict[str, Any]] | None = None,
@@ -88,20 +106,27 @@ async def complete_with_tools(
     tool_choice="required" 强制这一轮必须调工具。用它来保证模型不会
     拿对话历史里自己上一轮说过的话当数据源——那样它会连没查过的细节一起编出来。
     """
-    kwargs: dict[str, Any] = {
-        "model": _model(),
-        "messages": list(messages),
-    }
+    model = _model()
+    kwargs: dict[str, Any] = {"model": model, "messages": list(messages)}
+    wants_required = bool(tools) and tool_choice == "required"
+
     if tools:
         kwargs["tools"] = list(tools)
-        kwargs["tool_choice"] = tool_choice
+        # 已知这个模型不支持就别再白试一次——那是每一轮都要多付的一次失败调用。
+        kwargs["tool_choice"] = (
+            "auto" if wants_required and model in _REQUIRED_UNSUPPORTED else tool_choice
+        )
 
     try:
         response = await _client().chat.completions.create(**kwargs)
-    except Exception:
-        # 不是所有服务端都支持 required。退回 auto 总比整轮失败好。
-        if not tools or tool_choice == "auto":
+    except Exception as exc:
+        if not wants_required or not _rejects_required(exc):
             raise
+        # **这里丢掉的是防幻觉的那道闸门，必须留痕。**
+        # required 保证第一轮一定去查数据；退回 auto 之后模型可以直接开口，
+        # 也就可能拿对话历史里自己上一轮说过的话当数据源。
+        _REQUIRED_UNSUPPORTED.add(model)
+        log_event("tool_choice_downgraded", model=model, to="auto")
         kwargs["tool_choice"] = "auto"
         response = await _client().chat.completions.create(**kwargs)
 
