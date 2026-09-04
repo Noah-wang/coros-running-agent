@@ -30,6 +30,7 @@ MODULES: dict[str, str] = {
 
 # 工具名 → 模块 id。没列出的工具归到 loop，不额外画节点。
 TOOL_MODULES: dict[str, str] = {
+    "get_token_usage": "loop",
     "list_races": "races",
     "photo": "races",
     "list_recent_activities": "coros",

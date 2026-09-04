@@ -46,4 +46,16 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
         model=get_embedding_model(),
         input=texts,
     )
+    # 嵌入也花钱，也要记账。它没有 completion，只有输入 token。
+    # 不记的话「这个月花了多少」会系统性偏低——导入一本书就是几十万 token。
+    usage = getattr(response, "usage", None)
+    if usage is not None:
+        from src.runtime import usage_store
+
+        usage_store.record(
+            get_embedding_model(),
+            int(getattr(usage, "prompt_tokens", 0) or 0),
+            0,
+        )
+
     return [item.embedding for item in response.data]

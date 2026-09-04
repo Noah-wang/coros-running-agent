@@ -110,6 +110,12 @@ def record_usage(model: str, prompt_tokens: int, completion_tokens: int) -> None
                 if key != trace_id:
                     del _usage.by_trace[key]
 
+    # 落盘一份按天×模型的账本。进程级的 _usage 重启就清零，
+    # 回答不了「这个月花了多少」。延迟导入避免循环依赖。
+    from src.runtime import usage_store
+
+    usage_store.record(model, prompt_tokens, completion_tokens)
+
     log_event(
         "llm_call",
         model=model,

@@ -92,6 +92,77 @@ SEARCH_TOOL = Tool(
 )
 
 
+def _format_usage(days: int = 30) -> str:
+    from src.runtime.usage_store import summary
+
+    data = summary(days)
+    cur = data["currency"]
+    lines = [
+        f"当前模型：{data['active_model']}（嵌入：{data['embedding_model']}）",
+        f"统计范围：最近 {data['window_days']} 天",
+        "",
+    ]
+
+    if not data["by_model"]:
+        lines.append("还没有记录到任何模型调用。")
+        return "\n".join(lines)
+
+    lines.append("按模型：")
+    for model, agg in sorted(data["by_model"].items()):
+        cost = agg["estimated_cost"]
+        money = f"约 {cost} {cur}" if cost is not None else "未配单价"
+        lines.append(
+            f"- {model}：{agg['calls']} 次调用，"
+            f"输入 {agg['prompt_tokens']:,} / 输出 {agg['completion_tokens']:,} "
+            f"= {agg['total_tokens']:,} tokens，{money}"
+        )
+
+    if data["today"]:
+        today_total = sum(b["total_tokens"] for b in data["today"].values())
+        today_calls = sum(b["calls"] for b in data["today"].values())
+        lines.append("")
+        lines.append(f"今天：{today_calls} 次调用，{today_total:,} tokens")
+
+    lines.append("")
+    lines.append(f"合计估算：约 {data['estimated_cost']} {cur}")
+
+    # 费用是估算不是账单，这一点必须说出来，否则用户会拿它当真实开销。
+    if data["unpriced_models"]:
+        lines.append(
+            f"注意：{'、'.join(data['unpriced_models'])} 没有配置单价，"
+            "**没有计入上面的合计**，实际花费高于这个数。"
+        )
+    lines.append(
+        "费用按配置的单价估算，不是账单。走中转站或有折扣时会有出入——"
+        "在 .env 里用 LLM_PRICING 按实际单价覆盖。"
+    )
+    return "\n".join(lines)
+
+
+USAGE_TOOL = Tool(
+    name="get_token_usage",
+    description=(
+        "查看模型用量：当前在用的模型、调用次数、输入/输出 token 数，"
+        "以及按配置单价估算的费用。"
+        "用户问「用了多少 token」「花了多少钱」「现在用的什么模型」"
+        "「这个月的开销」时用它。"
+        "返回的内容已经是给用户看的格式，直接交出去。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "days": {
+                "type": "integer",
+                "description": "统计最近多少天，默认 30",
+            }
+        },
+        "required": [],
+    },
+    handler=lambda days=30, **_: _format_usage(int(days or 30)),
+    passthrough=True,
+)
+
+
 # 用户名字来自环境变量：这个提示词是要开源出去的，
 # 硬编码一个人名会让别人第一次跑起来就看到别人的名字。
 OWNER_NAME = os.getenv("AGENT_OWNER_NAME", "用户").strip() or "用户"
@@ -472,7 +543,7 @@ async def answer_open_question(
 
     # 搜索是可选能力：没配置 key 时根本不进工具表，模型也就不会承诺做不到的事。
     extra = (SEARCH_TOOL,) if search_configured() else ()
-    all_tools = (*tools, *extra, NO_LOOKUP_TOOL)
+    all_tools = (*tools, *extra, USAGE_TOOL, NO_LOOKUP_TOOL)
     available_tool_names = tuple(tool.name for tool in all_tools)
     registry = ToolRegistry(all_tools)
 
