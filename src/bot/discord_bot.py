@@ -41,9 +41,18 @@ async def _dispatch_interaction_command(
     start_message: str,
 ) -> None:
     orchestrator = get_orchestrator()
-    if interaction.channel_id is None or not orchestrator.is_allowed_for_command(
-        interaction.channel_id,
-        command_name,
+    # 两道都要过：频道得配过（总闸门），命令本身也得允许在这个频道用。
+    # 只查后者不够——没有 channel_env_name 的命令在任何频道都会返回 True。
+    if (
+        interaction.channel_id is None
+        or not orchestrator.is_discord_channel_allowed(
+            interaction.channel_id,
+            getattr(interaction.channel, "parent_id", None),
+        )
+        or not orchestrator.is_allowed_for_command(
+            interaction.channel_id,
+            command_name,
+        )
     ):
         await interaction.response.send_message(
             "这个命令只能在指定频道使用。", ephemeral=True
@@ -231,9 +240,16 @@ def create_discord_client() -> discord.Client:
             return
 
         orchestrator = get_orchestrator()
+        # 没配过的频道直接不理。dispatch_text 里也有同样的闸门（那才是权威的
+        # 那道），这里提前挡是为了不给陌生频道下载附件、也不亮「正在输入」。
+        if not orchestrator.is_discord_channel_allowed(
+            message.channel.id, getattr(message.channel, "parent_id", None)
+        ):
+            return
+
         try:
-            # 只在能力频道亮「正在输入」。其他频道 dispatch_text 会立刻返回，
-            # 亮指示器既没意义，还会让 bot 看起来在到处打字。
+            # 只在能力频道亮「正在输入」。论坛帖里 dispatch_text 也会真的干活，
+            # 但那条路径不一定有 typing 权限，所以不强求。
             if orchestrator.is_capabilities_channel(message.channel.id):
                 async with message.channel.typing():
                     await orchestrator.dispatch_text(

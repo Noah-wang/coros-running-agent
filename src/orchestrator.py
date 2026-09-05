@@ -18,6 +18,9 @@ from src.runtime.output_guard import sanitize as sanitize_output
 from src.runtime.tools import Tool
 from src.runtime.trace import Span, log_event, new_trace
 
+# 自动报告发帖的目标论坛。它不属于任何能力的专属频道，但用户会在报告帖下追问。
+FORUM_CHANNEL_ENV = "DISCORD_REPORT_FORUM_CHANNEL_ID"
+
 
 ROUTER_SYSTEM_PROMPT = """
 你是 COROS Running Agent 的自然语言路由器。
@@ -101,6 +104,35 @@ class MainAgentOrchestrator:
             for env_name in self._registry.channel_env_names()
         )
 
+    def is_discord_channel_allowed(
+        self, channel_id: int, parent_id: int | None = None
+    ) -> bool:
+        """Discord 总入口的硬闸门：**没配过的频道，一个字都不说。**
+
+        没有这道闸门时，`_dispatch_text_inner` 末尾的主 Agent 循环会接管
+        任何它看得见的频道——bot 会在别人的小红书频道里一本正经地答跑步问题。
+        「默认沉默」必须在入口一次性判掉，不能指望下游每个分支都记得自己检查：
+        下游分支只决定「用哪个能力」，加一个新分支的人不会想到要补频道判断。
+
+        论坛帖子的 channel.id 是帖子自己的 id，不是论坛的 id，
+        所以要连 parent_id 一起看，否则在报告帖底下追问会被当成陌生频道。
+        """
+        return any(
+            self._channel_configured(cid)
+            for cid in (channel_id, parent_id)
+            if cid is not None
+        )
+
+    def _channel_configured(self, channel_id: int) -> bool:
+        # 报告论坛不是任何能力的专属频道（它是发帖目标，不是能力入口），
+        # 所以 channel_env_names() 里没有它，得单独放行。
+        if self._is_allowed_channel(channel_id, FORUM_CHANNEL_ENV):
+            return True
+        configured = os.getenv("DISCORD_AGENT_CHANNEL_ID")
+        if configured:
+            return str(channel_id) == configured.strip()
+        return self.is_capabilities_channel(channel_id)
+
     async def dispatch_command(
         self,
         client: object,
@@ -164,6 +196,11 @@ class MainAgentOrchestrator:
         attachments: tuple[RuntimeAttachment, ...] = (),
         message: object | None = None,
     ) -> bool:
+        if not self.is_discord_channel_allowed(
+            channel.id, getattr(channel, "parent_id", None)
+        ):
+            return False
+
         stripped = content.strip()
         if not stripped:
             return False
