@@ -92,11 +92,22 @@ def _activity_date(activity: dict[str, Any]) -> str:
 
 
 def _activity_slug(activity: dict[str, Any]) -> str:
+    """这次运动的归档目录名。
+
+    **endTimestamp 故意不进来。** 它在手表同步期间一直在变，
+    进了目录名就等于每轮算出一个新目录：去重永远命中不了，
+    同一个文件被反复下载，而且没传完的半截会留在归档里。
+
+    线上真实后果：一次跑步存了 5 份，最早那份只有完整版的三分之一大；
+    6 次运动的归档里都躺着一个残缺版。之后谁按 labelId 去找
+    「这次跑步的 FIT」，有一半概率拿到没传完的那个。
+
+    labelId 本身就唯一标识一次运动，start 只是让目录名可读。
+    """
     label_id = str(activity.get("labelId") or "unknown-label")
     sport_type = str(activity.get("sportType") or "unknown-sport")
     start = str(activity.get("startTimestamp") or "")
-    end = str(activity.get("endTimestamp") or "")
-    raw = "-".join(item for item in (_activity_date(activity), label_id, sport_type, start, end) if item)
+    raw = "-".join(item for item in (_activity_date(activity), label_id, sport_type, start) if item)
     return re.sub(r"[^a-zA-Z0-9_.-]+", "-", raw).strip("-") or "activity"
 
 
