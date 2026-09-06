@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -289,6 +290,45 @@ def _activity_signature(activity: dict[str, Any]) -> str:
     return "|".join(parts)
 
 
+# 判定「同步完了没有」时要看的工具。**必须和报告实际用的数据是同一批**——
+# 只盯 querySportRecords 的列表摘要（距离/时长/配速/心率）没用：
+# 那几个字段手表一上传就定了，而报告是拿 getActivityDetail 和
+# queryActivityLapData 生成的，这两个还在慢慢补。盯着封面判断书印完了没有。
+#
+# 这两个工具已验证是确定性的（同样入参连调两次哈希一致），没有查询时间戳
+# 之类的易变字段——否则指纹永远对不上，报告永远发不出去，而且不报错。
+STABILITY_TOOLS = ("getActivityDetail", "queryActivityLapData")
+
+
+async def _activity_fingerprint(activity: dict[str, Any]) -> str | None:
+    """报告数据的指纹。任何一个工具取不到就返回 None——
+
+    取不到不等于「没变化」。把失败当成稳定，会在 COROS 抽风的两次轮询之间
+    直接把半份报告发出去。
+    """
+    label_id = activity.get("labelId")
+    sport_type = activity.get("sportType")
+    if label_id is None or sport_type is None:
+        return None
+
+    arguments = {"labelId": str(label_id), "sportType": int(sport_type)}
+    parts = [_activity_signature(activity)]
+    for tool_name in STABILITY_TOOLS:
+        try:
+            result = await _with_timeout(
+                f"stability_{tool_name}",
+                call_coros_tool(tool_name, arguments),
+                _coros_tool_timeout_seconds(),
+            )
+        except Exception as exc:
+            _log_auto_report(f"stability_probe_failed tool={tool_name} reason={exc}")
+            return None
+        parts.append(json.dumps(result, ensure_ascii=False, sort_keys=True))
+
+    digest = hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+    return digest[:32]
+
+
 def should_send_activity(activity: dict[str, Any]) -> bool:
     memory = get_agent_memory(AGENT_NAME)
     latest_reported_signature = memory.get("latest_reported_activity_signature")
@@ -334,7 +374,17 @@ def _activity_age_minutes(activity: dict[str, Any]) -> float | None:
 
 
 def _stable_minutes() -> int:
-    return _env_int("COROS_AUTO_REPORT_STABLE_MINUTES", 60, minimum=1)
+    """运动结束后至少等这么久才开始数「没变化」。
+
+    默认 0：判定交给指纹，不靠猜时长。留着这个钮是因为有人（包括这台服务器）
+    的 .env 里写了它——直接删掉代码会让那行配置**静默失效**。
+    """
+    return _env_int("COROS_AUTO_REPORT_STABLE_MINUTES", 0, minimum=0)
+
+
+def _stable_checks() -> int:
+    """要连续多少次读到一样的数据才算「不动了」。"""
+    return _env_int("COROS_AUTO_REPORT_STABLE_CHECKS", 2, minimum=1)
 
 
 def _candidate_cache() -> dict[str, Any]:
@@ -342,13 +392,19 @@ def _candidate_cache() -> dict[str, Any]:
     return cache if isinstance(cache, dict) else {}
 
 
-def _mark_candidate(activity: dict[str, Any]) -> None:
+def _mark_candidate(
+    activity: dict[str, Any],
+    fingerprint: str | None = None,
+    unchanged_checks: int = 0,
+) -> None:
     update_agent_cache(
         AGENT_NAME,
         {
             AUTO_REPORT_CANDIDATE_CACHE_KEY: {
                 "activity_id": activity_key(activity),
                 "activity_signature": _activity_signature(activity),
+                "fingerprint": fingerprint,
+                "unchanged_checks": unchanged_checks,
                 "first_seen_at": datetime.now(UTC).isoformat(),
                 "activity": {
                     "labelId": activity.get("labelId"),
@@ -367,24 +423,50 @@ def _clear_candidate() -> None:
     update_agent_cache(AGENT_NAME, {AUTO_REPORT_CANDIDATE_CACHE_KEY: {}})
 
 
-def _activity_stable_enough(activity: dict[str, Any]) -> tuple[bool, str]:
-    age_minutes = _activity_age_minutes(activity)
-    if age_minutes is None:
-        _mark_candidate(activity)
-        return False, "missing activity end timestamp"
+async def _activity_stable_enough(activity: dict[str, Any]) -> tuple[bool, str]:
+    """「数据不动了」才发报告，不是「检测到运动」就发。
 
+    判定规则：连续 N 次（默认 2）读到完全一样的报告数据才算这次运动同步完。
+    按 30 分钟一轮询算，等于数据静止满一小时才写。
+
+    原来的规则是按时钟等——运动结束满 60 分钟，再确认一次摘要没变。
+    问题在于「摘要」是 querySportRecords 的列表字段，手表一上传就定了，
+    而报告用的是详情和分圈数据，那时候还在补。于是时间一到就发，报告不完整。
+    """
     stable_minutes = _stable_minutes()
-    if age_minutes < stable_minutes:
-        _mark_candidate(activity)
-        return False, f"activity ended {age_minutes:.1f} minutes ago; waiting {stable_minutes} minutes"
+    if stable_minutes:
+        age_minutes = _activity_age_minutes(activity)
+        if age_minutes is None:
+            _mark_candidate(activity)
+            return False, "missing activity end timestamp"
+        if age_minutes < stable_minutes:
+            _mark_candidate(activity)
+            return (
+                False,
+                f"activity ended {age_minutes:.1f} minutes ago; "
+                f"waiting {stable_minutes} minutes",
+            )
 
-    activity_signature = _activity_signature(activity)
+    fingerprint = await _activity_fingerprint(activity)
+    if fingerprint is None:
+        # 探测失败不推进计数，也不重置——下一轮重新试。
+        return False, "report data unavailable; cannot tell whether it is still syncing"
+
+    needed = _stable_checks()
     candidate = _candidate_cache()
-    if candidate.get("activity_signature") != activity_signature:
-        _mark_candidate(activity)
-        return False, "activity first seen after stable window; waiting one more check"
+    if candidate.get("activity_id") != activity_key(activity):
+        _mark_candidate(activity, fingerprint, 0)
+        return False, f"first sighting; need {needed} unchanged checks"
 
-    return True, "activity is stable"
+    if candidate.get("fingerprint") != fingerprint:
+        _mark_candidate(activity, fingerprint, 0)
+        return False, f"report data changed; restarting {needed} unchanged checks"
+
+    unchanged = int(candidate.get("unchanged_checks") or 0) + 1
+    _mark_candidate(activity, fingerprint, unchanged)
+    if unchanged < needed:
+        return False, f"report data unchanged {unchanged}/{needed}"
+    return True, f"report data unchanged {unchanged}/{needed}; activity is stable"
 
 
 async def generate_activity_report(
@@ -481,7 +563,8 @@ def _send_on_first_run() -> bool:
 
 
 def _poll_minutes() -> int:
-    return _env_int("COROS_AUTO_REPORT_POLL_MINUTES", 15)
+    # 30 分钟一轮。配合默认 2 次「没变化」，等于数据静止满一小时才发报告。
+    return _env_int("COROS_AUTO_REPORT_POLL_MINUTES", 30)
 
 
 def _check_timeout_seconds() -> int:
@@ -605,7 +688,7 @@ async def check_and_send_coros_auto_report(
             return message
 
         if not force_send:
-            stable, reason = _activity_stable_enough(activity)
+            stable, reason = await _activity_stable_enough(activity)
             _log_auto_report(f"activity_stability stable={stable} reason={reason}")
             if not stable:
                 return f"COROS auto report skipped: {reason}."
