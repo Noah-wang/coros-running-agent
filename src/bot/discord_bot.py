@@ -50,7 +50,9 @@ async def _dispatch_interaction_command(
             getattr(interaction.channel, "parent_id", None),
         )
         or not orchestrator.is_allowed_for_command(
-            interaction.channel_id,
+            orchestrator.permission_channel_id_for(interaction.channel)
+            if interaction.channel is not None
+            else interaction.channel_id,
             command_name,
         )
     ):
