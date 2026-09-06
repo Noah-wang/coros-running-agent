@@ -443,6 +443,8 @@ COROS_AUTO_REPORT_ENABLED=true
 COROS_AUTO_REPORT_POLL_MINUTES=30
 COROS_AUTO_REPORT_STABLE_CHECKS=2   # 连续 2 次读到一样的报告数据才发，避免同步中的半截记录
 COROS_AUTO_REPORT_STABLE_MINUTES=0  # 额外的时钟下限，0 = 只看数据变没变
+
+LLM_THINKING=off                    # 推理模型的思考段。实测报告 109s→34s，质量无差别
 COROS_AUTO_REPORT_SEND_ON_FIRST_RUN=false
 
 WEB_AGENT_MODE=real                # demo = 离线假数据

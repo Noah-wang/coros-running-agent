@@ -29,6 +29,39 @@ def _model() -> str:
     return os.getenv("LLM_MODEL") or os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
 
+# 推理型模型会先生成一大段「思考」再回答，这段**按输出 token 计费，也占生成时间**。
+#
+# 实测 qwen3.8-flash 回答「用一句话说你好」：completion 138 个 token，
+# 其中 133 个是思考，正文只有 3 个字。一次路由分类要多花四千 token、十几秒。
+#
+# 分类和路由上这纯粹是浪费——那种任务要的是一个标签，不是一篇论证。
+#
+# 报告生成上本以为思考有价值，实测同一次运动 A/B（qwen3.8-flash）：
+#   思考开  109 秒  2078 字
+#   思考关   34 秒  2100 字
+# 长度和内容深度没有可见差别，但快了三倍多。原来报告压着 180 秒的超时线，
+# 抖一下整份就丢——线上就是这么失败的。所以默认全关。
+#
+# 这是一次 A/B，不是定论。想换回来：LLM_THINKING=on。
+_THINKING_OFF_BODY: dict[str, Any] = {
+    # 三种写法在这个中转站上都能关掉 qwen 的思考，一起带上以防换模型时失效。
+    # deepseek-v4-flash **不认这个开关**（照样出 reasoning_tokens），但也不报错，
+    # 所以无脑带上是安全的。
+    "enable_thinking": False,
+    "chat_template_kwargs": {"enable_thinking": False},
+}
+
+
+def _thinking_kwargs(default_on: bool) -> dict[str, Any]:
+    """要不要让模型思考。LLM_THINKING 是总开关，不设时用调用点的默认值。"""
+    raw = os.getenv("LLM_THINKING", "").strip().lower()
+    if raw in {"1", "true", "on", "yes"}:
+        return {}
+    if raw in {"0", "false", "off", "no"}:
+        return {"extra_body": dict(_THINKING_OFF_BODY)}
+    return {} if default_on else {"extra_body": dict(_THINKING_OFF_BODY)}
+
+
 def _observe(kind: str, messages: Sequence[dict[str, Any]], response: Any) -> None:
     """记录一次模型调用的用量和 Prompt 指纹。
 
@@ -67,6 +100,7 @@ async def complete_text(
     response = await _client().chat.completions.create(
         model=_model(),
         messages=messages,
+        **_thinking_kwargs(default_on=False),
     )
     _observe("text", messages, response)
 
@@ -108,6 +142,8 @@ async def complete_with_tools(
     """
     model = _model()
     kwargs: dict[str, Any] = {"model": model, "messages": list(messages)}
+    # 工具循环一次提问要跑好几轮，思考的开销要乘以轮数。
+    kwargs.update(_thinking_kwargs(default_on=False))
     wants_required = bool(tools) and tool_choice == "required"
 
     if tools:
@@ -142,6 +178,8 @@ async def complete_json(system_prompt: str, user_prompt: str) -> dict[str, Any]:
             {"role": "user", "content": user_prompt},
         ],
         response_format={"type": "json_object"},
+        # 路由要的是一个标签，不是一篇论证。
+        **_thinking_kwargs(default_on=False),
     )
     _observe("json", [{"role": "system", "content": system_prompt},
                       {"role": "user", "content": user_prompt}], response)

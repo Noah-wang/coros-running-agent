@@ -462,7 +462,9 @@ async def _activity_stable_enough(activity: dict[str, Any]) -> tuple[bool, str]:
         _mark_candidate(activity, fingerprint, 0)
         return False, f"report data changed; restarting {needed} unchanged checks"
 
-    unchanged = int(candidate.get("unchanged_checks") or 0) + 1
+    # 封顶在 needed：够了就是够了。不封的话报告生成失败后计数会一直涨，
+    # 日志里出现「unchanged 7/2」这种看着像 bug 的数字。
+    unchanged = min(int(candidate.get("unchanged_checks") or 0) + 1, needed)
     _mark_candidate(activity, fingerprint, unchanged)
     if unchanged < needed:
         return False, f"report data unchanged {unchanged}/{needed}"
@@ -568,7 +570,11 @@ def _poll_minutes() -> int:
 
 
 def _check_timeout_seconds() -> int:
-    return _env_int("COROS_AUTO_REPORT_TIMEOUT_SECONDS", 300, minimum=30)
+    """整个检查的总预算。**必须明显大于 LLM 那一段**，否则抬高内层没有意义——
+    失败只是从「LLM 超时」变成「整个检查超时」，同样发不出报告。
+    留的余量是给工具调用的：一次检查要查列表、探两次稳定性、再拉四个详情。
+    """
+    return _env_int("COROS_AUTO_REPORT_TIMEOUT_SECONDS", 420, minimum=30)
 
 
 def _coros_tool_timeout_seconds() -> int:
@@ -576,7 +582,9 @@ def _coros_tool_timeout_seconds() -> int:
 
 
 def _llm_timeout_seconds() -> int:
-    return _env_int("COROS_AUTO_REPORT_LLM_TIMEOUT_SECONDS", 180, minimum=30)
+    # 关掉思考后整篇约 34 秒，180 本来够用；线上仍撞到过超时，
+    # 说明中转站的抖动能到这个量级。留到 240，代价只是失败时多等一会。
+    return _env_int("COROS_AUTO_REPORT_LLM_TIMEOUT_SECONDS", 240, minimum=30)
 
 
 def _configured_channel_id() -> int | None:
