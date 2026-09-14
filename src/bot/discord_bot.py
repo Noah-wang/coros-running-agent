@@ -14,6 +14,10 @@ from src.runtime.identity import multi_tenant_enabled, resolve_external_tenant
 from src.runtime.tenant import TenantContext, tenant_scope
 
 
+def _log_connect(detail: str) -> None:
+    print(f"[coros-connect] {detail}", flush=True)
+
+
 # 拿本地变量
 def _required_env(name: str) -> str:
     value = os.getenv(name)
@@ -107,6 +111,27 @@ async def _handle_coros_connect_message(message: discord.Message) -> bool:
         return False
 
     await message.channel.send("正在生成 COROS 授权链接...")
+
+    # 首选公网回调那条路：用户点一下就完事，不用面对一个打不开的
+    # localhost 页面再复制粘贴。需要配了公网域名才能用。
+    try:
+        import asyncio as _asyncio
+
+        from src.integrations.coros_oauth import start as start_public_oauth
+
+        url = await _asyncio.to_thread(start_public_oauth)
+    except Exception as exc:
+        _log_connect(f"public_oauth_unavailable reason={exc}")
+    else:
+        await message.channel.send(
+            "请点击下面的链接授权 COROS：\n"
+            f"{url}\n\n"
+            "授权完成后浏览器会显示「COROS 已连接」，回到这里继续就行。"
+        )
+        return True
+
+    # 兜底：公网回调不可用（没配域名，或 mcp-remote 存储格式变了）时，
+    # 退回原来那套粘贴流程。体验差，但至少能用。
     try:
         result = await start_coros_auth_flow()
     except Exception as exc:

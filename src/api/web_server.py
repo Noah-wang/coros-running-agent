@@ -337,6 +337,28 @@ def _json_response(payload: Any, status: HTTPStatus = HTTPStatus.OK) -> tuple[in
     return status.value, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8"
 
 
+def _html_response(message: str, ok: bool = True) -> tuple[int, bytes, str]:
+    """给 OAuth 回调用的极简落地页。
+
+    用户是从 COROS 的授权页跳过来的，这一屏就是他对「成功了没有」的
+    全部感知——所以不能是一段 JSON，也不能是空白页。
+    """
+    safe = (
+        message.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    )
+    title = "COROS 已连接" if ok else "授权未完成"
+    body = f"""<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title><style>
+body{{font:16px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;
+max-width:32rem;margin:18vh auto;padding:0 1.5rem;color:#30343A;background:#F7F6F3}}
+h1{{font-size:1.25rem;font-weight:500;margin:0 0 .5rem}}
+p{{color:#5F5E5A;margin:0}}
+</style></head><body><h1>{title}</h1><p>{safe}</p></body></html>"""
+    status = HTTPStatus.OK if ok else HTTPStatus.BAD_REQUEST
+    return status.value, body.encode("utf-8"), "text/html; charset=utf-8"
+
+
 def _settings_payload(include_content: bool) -> dict[str, Any]:
     return {
         "automations": automation_payload(),
@@ -432,6 +454,9 @@ class WebHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/admin":
             self._serve_static("/admin.html", include_body=include_body)
+            return
+        if parsed.path == "/coros/callback":
+            self._handle_coros_callback(parsed, include_body=include_body)
             return
         if parsed.path.startswith("/media/photo-memory/"):
             self._serve_photo_media(parsed.path, include_body=include_body)
@@ -607,6 +632,36 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send(*_json_response(_settings_payload(include_content=True)))
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             self._send(*_json_response({"error": str(exc)}, HTTPStatus.BAD_REQUEST))
+
+    def _handle_coros_callback(self, parsed: Any, include_body: bool = True) -> None:
+        """COROS 授权完成后浏览器落在这里。
+
+        这个端点**不需要登录**——用户此刻还没有任何会话，它就是 OAuth 的落点。
+        安全性来自 state：随机、一次性、15 分钟过期，认不出来就什么都不做。
+        """
+        params = parse_qs(parsed.query)
+        code = (params.get("code") or [""])[0]
+        state = (params.get("state") or [""])[0]
+
+        if not code or not state:
+            error = (params.get("error_description") or params.get("error") or ["缺少授权码"])[0]
+            self._send(*_html_response(f"授权没有完成：{error}", ok=False), include_body=include_body)
+            return
+
+        try:
+            from src.integrations.coros_oauth import complete as complete_oauth
+
+            tenant_id = complete_oauth(code, state)
+        except Exception as exc:
+            log_event("coros_oauth_failed", error=str(exc)[:200])
+            self._send(*_html_response(f"授权失败：{exc}", ok=False), include_body=include_body)
+            return
+
+        log_event("coros_oauth_completed", tenant=tenant_id)
+        self._send(
+            *_html_response("COROS 已连接，可以回到对话里继续了。", ok=True),
+            include_body=include_body,
+        )
 
     def _handle_admin_post(self) -> None:
         if self._auth_throttled():
