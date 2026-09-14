@@ -502,7 +502,14 @@ async def check_and_send_coros_sleep_report(
 
             if tool_results is None:
                 tool_results = await _collect_sleep_tool_results(target_day)
-            if not _sleep_data_available(tool_results):
+            # 必须用 _has_main_sleep，不能用 _sleep_data_available。
+            #
+            # 后者只要文本里出现 "sleep" 就算数，而 COROS 当天没睡也会返回
+            # 一个带标题的空壳。空壳最要命的地方是它**完全稳定**——
+            # 指标一个都没有，怎么查都一样，于是稳定判定不但拦不住它，
+            # 还会在两轮之后主动放行，发出一篇「数据缺失，建议先同步手表」，
+            # 然后 _mark_sent 把这一天标记成已发：**起晚了就永远收不到真报告。**
+            if not _has_main_sleep(tool_results):
                 _log_sleep_report(f"sleep_data_unavailable date={target_day.isoformat()}")
                 return "COROS sleep report skipped: sleep data not available yet."
             _log_sleep_report(f"sleep_data_lookup_end date={target_day.isoformat()}")
