@@ -14,6 +14,12 @@ from src.runtime.identity import multi_tenant_enabled, resolve_external_tenant
 from src.runtime.tenant import TenantContext, tenant_scope
 
 
+# 等用户去浏览器点授权的时间。给足，但不能无限等——
+# 这个协程挂在 on_message 上，一直不返回会占着这条消息的处理。
+AUTH_WAIT_SECONDS = 300
+AUTH_POLL_SECONDS = 3
+
+
 def _log_connect(detail: str) -> None:
     print(f"[coros-connect] {detail}", flush=True)
 
@@ -118,15 +124,31 @@ async def _handle_coros_connect_message(message: discord.Message) -> bool:
         import asyncio as _asyncio
 
         from src.integrations.coros_oauth import start as start_public_oauth
+        from src.integrations.coros_oauth import take_completion
 
-        url = await _asyncio.to_thread(start_public_oauth)
+        url, state = await _asyncio.to_thread(start_public_oauth)
     except Exception as exc:
         _log_connect(f"public_oauth_unavailable reason={exc}")
     else:
         await message.channel.send(
             "请点击下面的链接授权 COROS：\n"
             f"{url}\n\n"
-            "授权完成后浏览器会显示「COROS 已连接」，回到这里继续就行。"
+            "授权完成后浏览器会显示「COROS 已连接」，我在这里等着回你。"
+        )
+        # 授权是在 **web 进程**里完成的，bot 这边收不到任何事件。
+        # 不轮询的话用户点完回到频道只看到一片安静，会以为失败了。
+        deadline = _asyncio.get_running_loop().time() + AUTH_WAIT_SECONDS
+        while _asyncio.get_running_loop().time() < deadline:
+            await _asyncio.sleep(AUTH_POLL_SECONDS)
+            if await _asyncio.to_thread(take_completion, state) is not None:
+                await message.channel.send(
+                    "COROS 授权完成，已经连上了。可以发 `!coros-auto-report` 试一下。"
+                )
+                _log_connect("public_oauth_completed")
+                return True
+        await message.channel.send(
+            "等了一会儿没等到授权完成。如果你已经点过并看到「COROS 已连接」，"
+            "那其实已经成功了，直接用就行；否则发一次 `连接coros` 重新开始。"
         )
         return True
 

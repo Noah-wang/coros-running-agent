@@ -21,6 +21,8 @@ os.environ.setdefault("COROS_RUNTIME_SETTINGS_PATH", tempfile.mktemp())
 
 from src.integrations import coros_oauth as oauth  # noqa: E402
 
+_real_credentials_dir = oauth.credentials_dir
+
 CLIENT = {
     "client_id": "test-client-id",
     "redirect_uris": ["https://agent.example.com/coros/callback"],
@@ -33,6 +35,7 @@ TOKENS = {"access_token": "at", "refresh_token": "rt", "token_type": "Bearer"}
 @pytest.fixture(autouse=True)
 def _isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(oauth, "PENDING_PATH", tmp_path / "pending.json")
+    monkeypatch.setattr(oauth, "COMPLETED_PATH", tmp_path / "completed.json")
     monkeypatch.setattr(oauth, "credentials_dir", lambda tenant_id=None: tmp_path / "mcp-auth")
     monkeypatch.setenv("WEB_PUBLIC_DOMAIN", "agent.example.com")
     yield
@@ -142,3 +145,37 @@ def test_metadata_base_survives_mcp_in_hostname(monkeypatch):
     assert seen["url"] == (
         "https://mcpus.coros.com/.well-known/oauth-authorization-server"
     )
+
+
+# ── 令牌写到哪 ────────────────────────────────────────────────────────
+
+def test_default_tenant_falls_back_to_home_not_cwd(monkeypatch, tmp_path):
+    """线上踩过：Path("") 是 Path(".")，**真值**，兜底永远不触发，
+    令牌被写进当时的工作目录，mcp-remote 去 ~/.mcp-auth 读读不到——
+    授权「成功」了却还是连不上。"""
+    monkeypatch.setattr(oauth, "credentials_dir", oauth.credentials_dir.__wrapped__
+                        if hasattr(oauth.credentials_dir, "__wrapped__") else _real_credentials_dir)
+    monkeypatch.setattr(oauth, "mcp_config_dir", lambda tenant_id=None: None)
+    monkeypatch.delenv("MCP_REMOTE_CONFIG_DIR", raising=False)
+    monkeypatch.setattr(oauth.Path, "home", staticmethod(lambda: tmp_path / "home"))
+
+    folder = oauth.credentials_dir("default")
+    assert str(folder).startswith(str(tmp_path / "home")), f"落在了 {folder}"
+    assert ".mcp-auth" in str(folder)
+
+
+# ── 完成记号（跨进程回话）────────────────────────────────────────────
+
+def test_completion_is_recorded_and_taken_once(monkeypatch):
+    """web 写记号、bot 取记号。取走即删，否则会重复回话。"""
+    _pend("s5")
+    monkeypatch.setattr(oauth, "_post", lambda *a, **k: dict(TOKENS))
+    monkeypatch.setattr(oauth, "metadata", lambda: {"token_endpoint": "https://x/token"})
+
+    oauth.complete("code", "s5")
+    assert oauth.take_completion("s5") == "default"
+    assert oauth.take_completion("s5") is None
+
+
+def test_take_completion_unknown_state_is_none():
+    assert oauth.take_completion("never") is None

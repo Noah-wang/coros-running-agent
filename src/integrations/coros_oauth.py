@@ -59,6 +59,12 @@ HTTP_TIMEOUT = 20
 PENDING_PATH = DATA_DIR / "coros_oauth_pending.json"
 PENDING_TTL_SECONDS = 900
 
+# 授权在 web 进程里完成，但用户是在聊天窗口里发起的——**bot 完全不知道发生过**。
+# 不留个记号的话，用户点完授权回到频道，没有任何回应，看起来像没成功。
+# web 写记号，bot 轮询这个文件来回话。
+COMPLETED_PATH = DATA_DIR / "coros_oauth_completed.json"
+COMPLETED_TTL_SECONDS = 1800
+
 
 def _post(url: str, data: dict[str, str] | None = None, json_body: dict | None = None) -> dict:
     if json_body is not None:
@@ -114,9 +120,14 @@ def credentials_dir(tenant_id: str | None = None) -> Path:
     base = mcp_config_dir(tenant_id)
     if base is None:
         # 默认租户沿用 ~/.mcp-auth，保持升级前的安装不动。
-        base = Path(os.getenv("MCP_REMOTE_CONFIG_DIR", "")).expanduser() or (
-            Path.home() / ".mcp-auth"
-        )
+        #
+        # **先判断字符串再构造 Path。** 写成
+        #   Path(os.getenv(..., "")).expanduser() or (Path.home() / ".mcp-auth")
+        # 是错的：Path("") 等于 Path(".")，而它是**真值**，兜底永远轮不到，
+        # 令牌会被写进当时的工作目录。线上踩过：文件落在 /opt/agent/ 下面，
+        # mcp-remote 去 ~/.mcp-auth 读，读不到——授权「成功」了却还是没连上。
+        configured = os.getenv("MCP_REMOTE_CONFIG_DIR", "").strip()
+        base = Path(configured).expanduser() if configured else Path.home() / ".mcp-auth"
     return Path(base) / f"mcp-remote-{_mcp_version()}"
 
 
@@ -193,8 +204,8 @@ def register_client(redirect_uri: str) -> dict:
     )
 
 
-def start(tenant_id: str | None = None) -> str:
-    """返回给用户点的授权链接。"""
+def start(tenant_id: str | None = None) -> tuple[str, str]:
+    """返回 (授权链接, state)。state 给调用方用来轮询授权结果。"""
     tenant = tenant_id or current_tenant().tenant_id
     redirect_uri = public_redirect_uri()
     client = register_client(redirect_uri)
@@ -228,7 +239,7 @@ def start(tenant_id: str | None = None) -> str:
             "code_challenge_method": "S256",
         }
     )
-    return f"{metadata()['authorization_endpoint']}?{query}"
+    return f"{metadata()['authorization_endpoint']}?{query}", state
 
 
 def complete(code: str, state: str) -> str:
@@ -259,4 +270,37 @@ def complete(code: str, state: str) -> str:
 
     tenant_id = str(entry["tenant_id"])
     write_mcp_credentials(tenant_id, client, tokens)
+    _mark_completed(state, tenant_id)
     return tenant_id
+
+
+def _mark_completed(state: str, tenant_id: str) -> None:
+    now = time.time()
+    try:
+        data = json.loads(COMPLETED_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    data = {
+        key: value
+        for key, value in data.items()
+        if isinstance(value, dict) and float(value.get("expires_at", 0)) > now
+    }
+    data[state] = {"tenant_id": tenant_id, "expires_at": now + COMPLETED_TTL_SECONDS}
+    _write_private_json(COMPLETED_PATH, data)
+
+
+def take_completion(state: str) -> str | None:
+    """bot 用这个问「那次授权成不成功」。取走即删，避免重复回话。"""
+    try:
+        data = json.loads(COMPLETED_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    entry = data.pop(state, None)
+    if not isinstance(entry, dict):
+        return None
+    _write_private_json(COMPLETED_PATH, data)
+    return str(entry.get("tenant_id") or "")
