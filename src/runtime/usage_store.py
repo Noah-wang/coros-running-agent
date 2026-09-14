@@ -115,6 +115,26 @@ def record(model: str, prompt_tokens: int, completion_tokens: int) -> None:
         # 记账失败不能拖垮请求本身
         pass
 
+    try:
+        from src.runtime.control_store import get_control_store
+        from src.runtime.tenant import current_tenant
+        from src.runtime.trace import current_trace
+
+        tenant_id = current_tenant().tenant_id
+        store = get_control_store()
+        if tenant_id == "default":
+            store.ensure_default_tenant(os.getenv("AGENT_OWNER_NAME", "Owner"))
+        store.record_usage(
+            tenant_id,
+            current_trace(),
+            model,
+            prompt_tokens,
+            completion_tokens,
+        )
+    except Exception:
+        # 控制平面统计也不能影响用户回答。
+        pass
+
 
 def _cost(model: str, prompt_tokens: int, completion_tokens: int, table) -> float | None:
     rates = table.get(model)

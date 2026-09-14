@@ -10,6 +10,7 @@
 所以基准只留一份，谁需要就 import。
 """
 
+import os
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -18,3 +19,20 @@ DATA_DIR = ROOT_DIR / "data"
 AGENTS_DIR = ROOT_DIR / "agents"
 ASSETS_DIR = ROOT_DIR / "assets"
 WEB_DIR = ROOT_DIR / "web"
+
+
+def tenant_data_dir(tenant_id: str | None = None) -> Path:
+    """Return the private data root for one tenant.
+
+    The default tenant keeps using ``data/`` so an existing installation can be
+    upgraded without moving personal files. New tenants always receive their
+    own directory below ``TENANT_DATA_ROOT``.
+    """
+    from src.runtime.tenant import current_tenant, default_tenant_id
+
+    identifier = tenant_id or current_tenant().tenant_id
+    if identifier == default_tenant_id():
+        return DATA_DIR
+    configured = os.getenv("TENANT_DATA_ROOT", "").strip()
+    root = Path(configured).expanduser() if configured else DATA_DIR / "tenants"
+    return root / identifier

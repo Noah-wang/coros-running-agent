@@ -3,8 +3,15 @@ import os
 import discord
 from discord import app_commands
 
+from agents.coros_report.auth_flow import (
+    complete_coros_auth_flow,
+    is_coros_callback_url,
+    start_coros_auth_flow,
+)
 from src.orchestrator import get_orchestrator
 from src.runtime.capability import RuntimeAttachment
+from src.runtime.identity import multi_tenant_enabled, resolve_external_tenant
+from src.runtime.tenant import TenantContext, tenant_scope
 
 
 # 拿本地变量
@@ -33,6 +40,92 @@ def _runtime_attachments(message: discord.Message) -> tuple[RuntimeAttachment, .
     return tuple(attachments)
 
 
+def _discord_workspace_id(value: object) -> str:
+    guild_id = getattr(value, "guild_id", None)
+    if guild_id is None:
+        guild = getattr(value, "guild", None)
+        guild_id = getattr(guild, "id", None)
+    return str(guild_id or "")
+
+
+def _message_tenant_context(message: discord.Message) -> TenantContext | None:
+    return resolve_external_tenant(
+        "discord",
+        str(message.author.id),
+        workspace_id=_discord_workspace_id(message),
+        surface="discord",
+    )
+
+
+def _interaction_tenant_context(interaction: discord.Interaction) -> TenantContext | None:
+    return resolve_external_tenant(
+        "discord",
+        str(interaction.user.id),
+        workspace_id=_discord_workspace_id(interaction),
+        surface="discord",
+    )
+
+
+def _looks_like_coros_connect_request(text: str) -> bool:
+    normalized = text.strip().casefold()
+    return normalized in {
+        "!coros-connect",
+        "!connect-coros",
+        "连接coros",
+        "连接 coros",
+        "连接高驰",
+        "重新连接coros",
+        "重新连接 coros",
+        "重新连接高驰",
+        "coros授权",
+        "coros 授权",
+        "高驰授权",
+    }
+
+
+async def _handle_coros_connect_message(message: discord.Message) -> bool:
+    orchestrator = get_orchestrator()
+    if not orchestrator.is_discord_channel_allowed(
+        message.channel.id, getattr(message.channel, "parent_id", None)
+    ):
+        return False
+
+    text = message.content.strip()
+    if is_coros_callback_url(text):
+        await message.channel.send("收到 COROS 回调链接，正在完成服务器授权...")
+        try:
+            await complete_coros_auth_flow(text)
+        except Exception as exc:
+            await message.channel.send(f"COROS 授权失败：{str(exc).strip() or exc.__class__.__name__}")
+            return True
+        await message.channel.send(
+            "COROS 授权完成。现在可以发送 `!coros-auto-report` 测试自动运动报告。"
+        )
+        return True
+
+    if not _looks_like_coros_connect_request(text):
+        return False
+
+    await message.channel.send("正在生成 COROS 授权链接...")
+    try:
+        result = await start_coros_auth_flow()
+    except Exception as exc:
+        await message.channel.send(f"生成 COROS 授权链接失败：{str(exc).strip() or exc.__class__.__name__}")
+        return True
+
+    if result.already_connected:
+        await message.channel.send("COROS 已经处于连接状态，可以直接使用 `!coros-auto-report` 测试。")
+        return True
+
+    await message.channel.send(
+        "请点击下面的链接授权 COROS：\n"
+        f"{result.authorization_url}\n\n"
+        f"授权后如果浏览器跳到 `localhost:{result.callback_port}` 并显示打不开，"
+        "请把地址栏里的完整链接复制回来发到这里，我会自动完成服务器授权。"
+    )
+    return True
+
+
 async def _dispatch_interaction_command(
     interaction: discord.Interaction,
     client: discord.Client,
@@ -41,13 +134,10 @@ async def _dispatch_interaction_command(
     start_message: str,
 ) -> None:
     orchestrator = get_orchestrator()
-    # 两道都要过：频道得配过（总闸门），命令本身也得允许在这个频道用。
-    # 只查后者不够——没有 channel_env_name 的命令在任何频道都会返回 True。
     if (
         interaction.channel_id is None
         or not orchestrator.is_discord_channel_allowed(
-            interaction.channel_id,
-            getattr(interaction.channel, "parent_id", None),
+            interaction.channel_id, getattr(interaction.channel, "parent_id", None)
         )
         or not orchestrator.is_allowed_for_command(
             orchestrator.permission_channel_id_for(interaction.channel)
@@ -61,27 +151,36 @@ async def _dispatch_interaction_command(
         )
         return
 
-    try:
-        await interaction.response.send_message(start_message)
-        if interaction.channel is not None:
-            # 命令要走 LLM、MCP 和知识库检索，耗时通常十几秒，
-            # 期间亮出 Discord 原生的「正在输入」，避免看起来像没反应。
-            async with interaction.channel.typing():
-                await orchestrator.dispatch_command(
-                    client,
-                    interaction.channel,
-                    command_name,
-                    argument,
-                )
-    except Exception as exc:
-        error_text = str(exc).strip() or exc.__class__.__name__
-        if len(error_text) > 500:
-            error_text = f"{error_text[:500].rstrip()}..."
-        message = f"执行 `{command_name}` 失败。\n```text\n{error_text}\n```"
-        if interaction.response.is_done():
-            await interaction.followup.send(message)
-        else:
-            await interaction.response.send_message(message, ephemeral=True)
+    tenant_context = _interaction_tenant_context(interaction)
+    if tenant_context is None:
+        await interaction.response.send_message(
+            "你的账号还没有绑定到 COROS Agent，或订阅当前不可用。请联系管理员完成开通。",
+            ephemeral=True,
+        )
+        return
+
+    with tenant_scope(tenant_context):
+        try:
+            await interaction.response.send_message(start_message)
+            if interaction.channel is not None:
+                # 命令要走 LLM、MCP 和知识库检索，耗时通常十几秒，
+                # 期间亮出 Discord 原生的「正在输入」，避免看起来像没反应。
+                async with interaction.channel.typing():
+                    await orchestrator.dispatch_command(
+                        client,
+                        interaction.channel,
+                        command_name,
+                        argument,
+                    )
+        except Exception as exc:
+            error_text = str(exc).strip() or exc.__class__.__name__
+            if len(error_text) > 500:
+                error_text = f"{error_text[:500].rstrip()}..."
+            message = f"执行 `{command_name}` 失败。\n```text\n{error_text}\n```"
+            if interaction.response.is_done():
+                await interaction.followup.send(message)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
 
 
 # 创建discord客户端
@@ -174,6 +273,16 @@ def create_discord_client() -> discord.Client:
             "正在读取 COROS 自动 PB。",
         )
 
+    @tree.command(name="coros-sleep-report", description="生成 COROS 睡眠与恢复晨报")
+    async def coros_sleep_report_command(interaction: discord.Interaction) -> None:
+        await _dispatch_interaction_command(
+            interaction,
+            client,
+            "coros-sleep-report",
+            "",
+            "正在生成 COROS 睡眠与恢复晨报。",
+        )
+
     # 跑步书籍回答命令
     @tree.command(name="running-ask", description="基于已导入跑步书籍回答训练问题")
     @app_commands.describe(question="你的跑步训练问题")
@@ -233,6 +342,12 @@ def create_discord_client() -> discord.Client:
             )
             return
 
+        if _interaction_tenant_context(interaction) is None:
+            await interaction.response.send_message(
+                "你的账号还没有绑定到 COROS Agent。", ephemeral=True
+            )
+            return
+
         await interaction.response.send_message(orchestrator.describe_capabilities())
 
     # 监听消息
@@ -242,18 +357,36 @@ def create_discord_client() -> discord.Client:
             return
 
         orchestrator = get_orchestrator()
-        # 没配过的频道直接不理。dispatch_text 里也有同样的闸门（那才是权威的
-        # 那道），这里提前挡是为了不给陌生频道下载附件、也不亮「正在输入」。
         if not orchestrator.is_discord_channel_allowed(
             message.channel.id, getattr(message.channel, "parent_id", None)
         ):
             return
 
-        try:
-            # 只在能力频道亮「正在输入」。论坛帖里 dispatch_text 也会真的干活，
-            # 但那条路径不一定有 typing 权限，所以不强求。
-            if orchestrator.is_capabilities_channel(message.channel.id):
-                async with message.channel.typing():
+        tenant_context = _message_tenant_context(message)
+        if tenant_context is None:
+            if multi_tenant_enabled():
+                await message.channel.send(
+                    "你的账号还没有绑定到 COROS Agent，或订阅当前不可用。请联系管理员完成开通。"
+                )
+            return
+
+        with tenant_scope(tenant_context):
+            if await _handle_coros_connect_message(message):
+                return
+
+            try:
+                # 只在能力频道亮「正在输入」。论坛帖里 dispatch_text 也会真的干活，
+                # 但那条路径不一定有 typing 权限，所以不强求。
+                if orchestrator.is_capabilities_channel(message.channel.id):
+                    async with message.channel.typing():
+                        await orchestrator.dispatch_text(
+                            client,
+                            message.channel,
+                            message.content,
+                            _runtime_attachments(message),
+                            message,
+                        )
+                else:
                     await orchestrator.dispatch_text(
                         client,
                         message.channel,
@@ -261,19 +394,11 @@ def create_discord_client() -> discord.Client:
                         _runtime_attachments(message),
                         message,
                     )
-            else:
-                await orchestrator.dispatch_text(
-                    client,
-                    message.channel,
-                    message.content,
-                    _runtime_attachments(message),
-                    message,
-                )
-        except Exception as exc:
-            error_text = str(exc).strip() or exc.__class__.__name__
-            if len(error_text) > 500:
-                error_text = f"{error_text[:500].rstrip()}..."
-            await message.channel.send(f"处理消息失败。\n```text\n{error_text}\n```")
+            except Exception as exc:
+                error_text = str(exc).strip() or exc.__class__.__name__
+                if len(error_text) > 500:
+                    error_text = f"{error_text[:500].rstrip()}..."
+                await message.channel.send(f"处理消息失败。\n```text\n{error_text}\n```")
 
     return client
 

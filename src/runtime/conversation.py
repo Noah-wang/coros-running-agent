@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Any
 
 from src.runtime.llm import complete_text
+from src.runtime.paths import tenant_data_dir
+from src.runtime.tenant import current_tenant, default_tenant_id
 
 
 RUNNING_COACH_TOPIC = "running-coach"
@@ -59,7 +61,8 @@ SUMMARY_PROMPT = """
 """.strip()
 
 _lock = threading.Lock()
-_sessions: dict[tuple[str, str], dict[str, Any]] = {}
+SessionKey = tuple[str, str, str]
+_sessions: dict[SessionKey, dict[str, Any]] = {}
 
 
 def _idle_timeout_seconds() -> float:
@@ -83,17 +86,26 @@ def _persist_enabled() -> bool:
 
 def _journal_dir() -> Path:
     value = os.getenv("CONVERSATION_DIR")
-    return Path(value) if value else DEFAULT_JOURNAL_DIR
+    if value:
+        configured = Path(value)
+        if current_tenant().tenant_id == default_tenant_id():
+            return configured
+        return configured / current_tenant().tenant_id
+    return tenant_data_dir() / "conversations"
 
 
-def _journal_path(key: tuple[str, str]) -> Path:
+def _session_key(conversation_id: str, topic: str) -> SessionKey:
+    return current_tenant().tenant_id, conversation_id, topic
+
+
+def _journal_path(key: SessionKey) -> Path:
     """会话日志的路径。
 
     conversation_id 可能是 Discord 频道号，也可能是网页前端生成的任意字符串，
     不能直接当文件名。取一个可读的前缀加上哈希后缀：前缀方便人翻，
     哈希保证不同 id 不会因为字符被替换而撞到同一个文件。
     """
-    conversation_id, topic = key
+    _, conversation_id, topic = key
     slug = re.sub(r"[^A-Za-z0-9_-]", "_", conversation_id)[:48]
     digest = hashlib.sha1(conversation_id.encode("utf-8")).hexdigest()[:8]
     topic_slug = re.sub(r"[^A-Za-z0-9_-]", "_", topic)[:32] or "default"
@@ -113,7 +125,7 @@ def _new_session(now: float) -> dict[str, Any]:
 
 def _append(
     session: dict[str, Any],
-    key: tuple[str, str],
+    key: SessionKey,
     entry: dict[str, Any],
 ) -> None:
     """把一条记录追加到日志。必须在持锁状态下调用。
@@ -134,7 +146,7 @@ def _append(
 
 
 def _replay(
-    key: tuple[str, str],
+    key: SessionKey,
     now: float,
     apply_compaction: bool = True,
 ) -> dict[str, Any] | None:
@@ -239,7 +251,7 @@ def _apply_entry(
         session["last_mid"] = last_mid
 
 
-def _live_session(key: tuple[str, str], now: float) -> dict[str, Any] | None:
+def _live_session(key: SessionKey, now: float) -> dict[str, Any] | None:
     """内存里未过期的会话。必须在持锁状态下调用。"""
     session = _sessions.get(key)
     if session is None:
@@ -250,7 +262,7 @@ def _live_session(key: tuple[str, str], now: float) -> dict[str, Any] | None:
     return session
 
 
-def _resolve_session(key: tuple[str, str], now: float) -> dict[str, Any] | None:
+def _resolve_session(key: SessionKey, now: float) -> dict[str, Any] | None:
     """读会话：内存里没有就按日志重建。必须在持锁状态下调用。
 
     读取路径也要能重建，否则重启之后 get_history 会一直返回空——
@@ -266,7 +278,7 @@ def _resolve_session(key: tuple[str, str], now: float) -> dict[str, Any] | None:
     return session
 
 
-def _touch_session(key: tuple[str, str], now: float) -> dict[str, Any]:
+def _touch_session(key: SessionKey, now: float) -> dict[str, Any]:
     """读会话，不存在就新建。必须在持锁状态下调用。"""
     session = _resolve_session(key, now)
     if session is None:
@@ -295,7 +307,7 @@ def get_history(conversation_id: str | None, topic: str) -> tuple[dict[str, str]
         return ()
 
     with _lock:
-        session = _resolve_session((conversation_id, topic), time.time())
+        session = _resolve_session(_session_key(conversation_id, topic), time.time())
         if session is None:
             return ()
         return _visible(session["messages"])
@@ -314,7 +326,7 @@ def read_full_history(
         return ()
 
     with _lock:
-        session = _replay((conversation_id, topic), time.time(), apply_compaction=False)
+        session = _replay(_session_key(conversation_id, topic), time.time(), apply_compaction=False)
         if session is None:
             return ()
         return _visible(session["messages"])
@@ -326,7 +338,7 @@ def get_summary(conversation_id: str | None, topic: str) -> str:
         return ""
 
     with _lock:
-        session = _resolve_session((conversation_id, topic), time.time())
+        session = _resolve_session(_session_key(conversation_id, topic), time.time())
         if session is None:
             return ""
         return session["summary"]
@@ -354,7 +366,7 @@ async def _compress(previous_summary: str, messages: list[dict[str, Any]]) -> st
 
 def _record_message(
     session: dict[str, Any],
-    key: tuple[str, str],
+    key: SessionKey,
     role: str,
     content: str,
 ) -> None:
@@ -379,7 +391,7 @@ async def append_turn(
     if not conversation_id or not user_text.strip() or not assistant_text.strip():
         return
 
-    key = (conversation_id, topic)
+    key = _session_key(conversation_id, topic)
     with _lock:
         session = _touch_session(key, time.time())
         _record_message(session, key, "user", _truncate(user_text))
@@ -439,7 +451,7 @@ def set_pending_questions(
 
     cleaned = [question.strip() for question in questions if question.strip()]
     cleaned = cleaned[:MAX_PENDING_QUESTIONS]
-    key = (conversation_id, topic)
+    key = _session_key(conversation_id, topic)
     with _lock:
         session = _touch_session(key, time.time())
         session["pending_questions"] = cleaned
@@ -451,7 +463,7 @@ def get_pending_questions(conversation_id: str | None, topic: str) -> tuple[str,
         return ()
 
     with _lock:
-        session = _resolve_session((conversation_id, topic), time.time())
+        session = _resolve_session(_session_key(conversation_id, topic), time.time())
         if session is None:
             return ()
         return tuple(session["pending_questions"])
@@ -466,7 +478,7 @@ def set_context_value(
     if not conversation_id or not key:
         return
 
-    session_key = (conversation_id, topic)
+    session_key = _session_key(conversation_id, topic)
     with _lock:
         session = _touch_session(session_key, time.time())
         session["context"][key] = value
@@ -482,7 +494,7 @@ def get_context_value(
         return None
 
     with _lock:
-        session = _resolve_session((conversation_id, topic), time.time())
+        session = _resolve_session(_session_key(conversation_id, topic), time.time())
         if session is None:
             return None
         return session["context"].get(key)
@@ -496,7 +508,7 @@ def clear_history(conversation_id: str | None, topic: str) -> None:
     if not conversation_id:
         return
 
-    key = (conversation_id, topic)
+    key = _session_key(conversation_id, topic)
     with _lock:
         session = _sessions.get(key)
         if session is not None:

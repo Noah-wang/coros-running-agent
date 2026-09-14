@@ -108,7 +108,9 @@ def _has_main_sleep(tool_results: list[dict[str, Any]]) -> bool:
     return False
 
 
-async def _resolve_sleep_day() -> tuple[date, list[dict[str, Any]] | None]:
+async def _resolve_sleep_day(
+    allow_fallback: bool = True,
+) -> tuple[date, list[dict[str, Any]] | None]:
     """挑要报告哪一天的睡眠，顺带把已经取到的数据带回去。
 
     **COROS 按「醒来那天」给睡眠记录标日期**（它自己的返回里写了：
@@ -117,12 +119,18 @@ async def _resolve_sleep_day() -> tuple[date, list[dict[str, Any]] | None]:
 
     原来这里写死 `今天 - 1`，于是早上收到的报告讲的是前天晚上那一觉。
 
-    今天的数据可能还没从手表同步上来，那就退回昨天——总比不发强。
-    退回时也把数据一起返回，省掉重复的一轮 COROS 调用。
+    今天的数据可能还没从手表同步上来。**手动查询可以退回昨天**——
+    你主动问了，给昨天的总比什么都不给强。**自动晨报不能退**：
+    退回去就等于每天早上把同一觉重新讲一遍，而且讲的是「今日报告」。
+    自动那条宁可等，等到真数据同步上来再发。
     """
     today = _today()
     results = await _collect_sleep_tool_results(today)
     if _has_main_sleep(results):
+        return today, results
+
+    if not allow_fallback:
+        _log_sleep_report(f"sleep_day_waiting date={today.isoformat()}")
         return today, results
 
     fallback = _fallback_sleep_day()
@@ -496,7 +504,7 @@ async def check_and_send_coros_sleep_report(
         else:
             # 哪一天要先问过 COROS 才知道——今天的数据同步上来了就报今天的。
             _log_sleep_report("sleep_day_resolve_start")
-            target_day, tool_results = await _resolve_sleep_day()
+            target_day, tool_results = await _resolve_sleep_day(allow_fallback=False)
             if _has_sent(target_day):
                 return f"COROS sleep report skipped: already sent for {target_day.isoformat()}."
 

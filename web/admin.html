@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>COROS Running Agent · 管理后台</title>
+    <link rel="icon" type="image/png" href="/assets/coros-running-agent-avatar.png">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body class="admin-page">
+    <header class="topbar">
+      <div class="brand"><span class="mark"><img src="/assets/coros-running-agent-avatar.png" alt=""></span><h1>COROS Running Agent</h1></div>
+      <nav class="topnav" aria-label="主导航">
+        <a href="/">对话</a><a href="/data?lang=zh">数据</a><a href="/tech?lang=zh">技术</a>
+        <a href="/settings">设置</a><a href="/admin" class="active">管理后台</a>
+      </nav>
+    </header>
+
+    <main class="admin-shell">
+      <header class="admin-head">
+        <div>
+          <p class="eyebrow">Control plane</p>
+          <h2>服务管理后台</h2>
+          <p>管理用户、订阅、渠道身份与模型用量。密钥只保存在服务器，页面不会返回原文。</p>
+        </div>
+        <div class="admin-head-actions" id="adminActions" hidden>
+          <button type="button" id="refreshButton" class="secondary-button">刷新</button>
+          <button type="button" id="createTenantButton" class="primary-button">新增用户</button>
+        </div>
+      </header>
+
+      <form class="settings-auth admin-auth" id="authPanel">
+        <label for="adminToken">管理员令牌</label>
+        <div><input id="adminToken" type="password" autocomplete="current-password" placeholder="输入 WEB_SETTINGS_TOKEN"><button id="unlockButton" type="submit">进入后台</button></div>
+        <p id="statusText" role="status"></p>
+      </form>
+
+      <div id="adminContent" hidden>
+        <section class="admin-mode-band" aria-live="polite">
+          <div><span class="status-dot" id="modeDot"></span><strong id="modeTitle"></strong></div>
+          <p id="modeDescription"></p>
+        </section>
+
+        <section class="admin-overview" aria-label="服务概览">
+          <div><small>用户总数</small><strong id="tenantCount">0</strong><span id="activeTenantCount">0 个可用</span></div>
+          <div><small>有效订阅</small><strong id="subscriptionCount">0</strong><span id="trialCount">0 个试用</span></div>
+          <div><small>近 30 天调用</small><strong id="callCount">0</strong><span id="tokenCount">0 tokens</span></div>
+          <div><small>近 30 天估算成本</small><strong id="estimatedCost">-</strong><span id="costNote">按已配置单价</span></div>
+        </section>
+
+        <section class="admin-section">
+          <div class="admin-section-head">
+            <div><p class="eyebrow">Tenants</p><h3>用户与订阅</h3></div>
+            <p>每位用户拥有独立的 COROS 授权、记忆、会话与用量账本。</p>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table tenant-table">
+              <thead><tr><th>用户</th><th>渠道身份</th><th>COROS</th><th>套餐 / 订阅</th><th>账号状态</th><th>30 天用量</th><th><span class="sr-only">操作</span></th></tr></thead>
+              <tbody id="tenantRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="admin-section admin-two-column">
+          <div>
+            <div class="admin-section-head compact"><div><p class="eyebrow">Integrations</p><h3>服务连接</h3></div></div>
+            <div class="admin-table-wrap">
+              <table class="admin-table"><thead><tr><th>服务</th><th>状态</th><th>配置</th></tr></thead><tbody id="integrationRows"></tbody></table>
+            </div>
+          </div>
+          <div>
+            <div class="admin-section-head compact"><div><p class="eyebrow">Usage</p><h3>模型用量</h3></div></div>
+            <div class="admin-table-wrap">
+              <table class="admin-table"><thead><tr><th>模型</th><th>调用</th><th>Tokens</th><th>估算</th></tr></thead><tbody id="usageRows"></tbody></table>
+            </div>
+          </div>
+        </section>
+
+        <section class="admin-section">
+          <div class="admin-section-head"><div><p class="eyebrow">Audit log</p><h3>最近操作</h3></div><p>记录用户、订阅和身份绑定的管理动作。</p></div>
+          <ol class="audit-list" id="auditList"></ol>
+        </section>
+      </div>
+    </main>
+
+    <dialog id="createTenantDialog" class="admin-dialog">
+      <form method="dialog" id="createTenantForm">
+        <header><div><p class="eyebrow">New tenant</p><h3>新增用户</h3></div><button type="button" class="dialog-close" data-close="createTenantDialog" aria-label="关闭">×</button></header>
+        <label>显示名称<input name="name" required maxlength="120" placeholder="例如：王小明"></label>
+        <label>套餐<select name="plan_code"><option value="trial">试用版</option><option value="personal">个人版</option><option value="pro">专业版</option></select></label>
+        <footer><button type="button" class="secondary-button" data-close="createTenantDialog">取消</button><button type="submit" class="primary-button">创建用户</button></footer>
+      </form>
+    </dialog>
+
+    <dialog id="editTenantDialog" class="admin-dialog">
+      <form method="dialog" id="editTenantForm">
+        <header><div><p class="eyebrow">Subscription</p><h3>编辑用户</h3></div><button type="button" class="dialog-close" data-close="editTenantDialog" aria-label="关闭">×</button></header>
+        <input name="tenant_id" type="hidden">
+        <label>显示名称<input name="name" required maxlength="120"></label>
+        <div class="dialog-fields">
+          <label>套餐<input name="plan_code" maxlength="64"></label>
+          <label>订阅状态<select name="subscription_status"><option value="trial">试用中</option><option value="active">已订阅</option><option value="past_due">待续费</option><option value="expired">已到期</option><option value="cancelled">已取消</option></select></label>
+        </div>
+        <div class="dialog-fields">
+          <label>账号状态<select name="status"><option value="active">可用</option><option value="paused">暂停</option><option value="disabled">停用</option></select></label>
+          <label>到期日期<input name="subscription_expires_at" type="date"></label>
+        </div>
+        <p class="dialog-note" id="ownerEditNote" hidden>主账号只允许修改显示名称，避免误停服务。</p>
+        <footer><button type="button" class="secondary-button" data-close="editTenantDialog">取消</button><button type="submit" class="primary-button">保存修改</button></footer>
+      </form>
+    </dialog>
+
+    <dialog id="bindIdentityDialog" class="admin-dialog">
+      <form method="dialog" id="bindIdentityForm">
+        <header><div><p class="eyebrow">Channel identity</p><h3>绑定平台账号</h3></div><button type="button" class="dialog-close" data-close="bindIdentityDialog" aria-label="关闭">×</button></header>
+        <input name="tenant_id" type="hidden">
+        <label>平台<select name="provider"><option value="discord">Discord</option><option value="feishu">飞书</option></select></label>
+        <label>用户 ID<input name="external_user_id" required maxlength="200" placeholder="Discord User ID 或飞书 open_id"></label>
+        <label>服务器 / 企业 ID（可选）<input name="workspace_id" maxlength="200" placeholder="Discord Guild ID 或飞书 tenant_key"></label>
+        <label>备注（可选）<input name="label" maxlength="120" placeholder="例如：个人 Discord"></label>
+        <footer><button type="button" class="secondary-button" data-close="bindIdentityDialog">取消</button><button type="submit" class="primary-button">完成绑定</button></footer>
+      </form>
+    </dialog>
+
+    <script src="/admin.js" type="module"></script>
+  </body>
+</html>

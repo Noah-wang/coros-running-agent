@@ -12,7 +12,7 @@ from src.runtime.trace import new_trace
 
 from agents.coros_report.fit_archive import archive_fit_for_activities, render_route_map_for_activity
 from agents.coros_report.shadowrunner_prompt import REPORT_SYSTEM_PROMPT
-from src.integrations.coros_mcp import call_coros_tool
+from src.integrations.coros_mcp import CorosMcpAuthorizationError, call_coros_tool
 from src.integrations.discord_forum import create_report_post
 from src.runtime.llm import complete_text
 from src.runtime.memory import (
@@ -30,6 +30,7 @@ from agents.coros_report.personal_bests import update_personal_bests_from_tool_r
 
 AGENT_NAME = "coros-report"
 AUTO_REPORT_CANDIDATE_CACHE_KEY = "auto_report_candidate_activity"
+MCP_AUTH_NOTICE_CACHE_KEY = "coros_mcp_auth_notice"
 _job_running = False
 
 
@@ -99,6 +100,38 @@ def _env_int(name: str, default: int, minimum: int = 1) -> int:
     except ValueError:
         _log_auto_report(f"invalid_env name={name} value={raw_value!r} using={default}")
         return default
+
+
+def _auth_notice_cooldown_minutes() -> int:
+    return _env_int("COROS_MCP_AUTH_NOTICE_COOLDOWN_MINUTES", 360, minimum=1)
+
+
+def _auth_notice_due() -> bool:
+    cache = get_agent_cache(AGENT_NAME).get(MCP_AUTH_NOTICE_CACHE_KEY, {})
+    if not isinstance(cache, dict):
+        return True
+    raw_sent_at = cache.get("sent_at")
+    if not isinstance(raw_sent_at, str) or not raw_sent_at:
+        return True
+    try:
+        sent_at = datetime.fromisoformat(raw_sent_at)
+    except ValueError:
+        return True
+    if sent_at.tzinfo is None:
+        sent_at = sent_at.replace(tzinfo=UTC)
+    elapsed = datetime.now(UTC) - sent_at.astimezone(UTC)
+    return elapsed.total_seconds() >= _auth_notice_cooldown_minutes() * 60
+
+
+def _mark_auth_notice_sent() -> None:
+    update_agent_cache(
+        AGENT_NAME,
+        {
+            MCP_AUTH_NOTICE_CACHE_KEY: {
+                "sent_at": datetime.now(UTC).isoformat(),
+            }
+        },
+    )
 
 
 async def _with_timeout(label: str, awaitable: Any, timeout_seconds: int) -> Any:
@@ -260,6 +293,8 @@ async def recent_coros_activities() -> list[dict[str, Any]]:
             call_coros_tool("querySportRecords", arguments),
             timeout_seconds,
         )
+    except CorosMcpAuthorizationError:
+        raise
     except Exception as exc:
         _log_auto_report(f"tool_querySportRecords_retry_empty_args reason={exc}")
         payload = await _with_timeout(
@@ -329,6 +364,7 @@ async def _activity_fingerprint(activity: dict[str, Any]) -> str | None:
     return digest[:32]
 
 
+
 def should_send_activity(activity: dict[str, Any]) -> bool:
     memory = get_agent_memory(AGENT_NAME)
     latest_reported_signature = memory.get("latest_reported_activity_signature")
@@ -385,6 +421,7 @@ def _stable_minutes() -> int:
 def _stable_checks() -> int:
     """要连续多少次读到一样的数据才算「不动了」。"""
     return _env_int("COROS_AUTO_REPORT_STABLE_CHECKS", 2, minimum=1)
+
 
 
 def _candidate_cache() -> dict[str, Any]:
@@ -603,6 +640,31 @@ async def _send_chunks(channel: discord.abc.Messageable, text: str) -> None:
         await channel.send(text[start : start + chunk_size])
 
 
+async def _send_coros_auth_notice(
+    channel: discord.abc.Messageable,
+    exc: CorosMcpAuthorizationError,
+) -> None:
+    if not _auth_notice_due():
+        _log_auto_report("coros_auth_notice_skipped cooldown_active=true")
+        return
+
+    if exc.authorization_url:
+        message = (
+            "COROS MCP 授权可能已经过期，自动运动报告暂时无法读取数据。\n"
+            f"请点击这个链接重新授权：\n{exc.authorization_url}\n\n"
+            "授权完成后，下一轮检查会自动继续；也可以手动发送 `!coros-auto-report` 触发一次。"
+        )
+    else:
+        message = (
+            "COROS MCP 授权可能已经过期，自动运动报告暂时无法读取数据。\n"
+            "这次没有捕获到可直接点击的授权链接，需要在服务器上重新运行 COROS MCP 授权。\n\n"
+            "授权完成后，下一轮检查会自动继续；也可以手动发送 `!coros-auto-report` 触发一次。"
+        )
+    await channel.send(message)
+    _mark_auth_notice_sent()
+    _log_auto_report("coros_auth_notice_sent")
+
+
 async def _report_channel(client: discord.Client) -> discord.abc.Messageable | None:
     channel_id = _configured_channel_id()
     if channel_id is None:
@@ -730,6 +792,14 @@ async def check_and_send_coros_auto_report(
         _clear_candidate()
         _log_auto_report("mark_activity_reported")
         return "COROS auto report sent."
+    except CorosMcpAuthorizationError as exc:
+        try:
+            channel = await _report_channel(client)
+            if channel is not None:
+                await _send_coros_auth_notice(channel, exc)
+        except Exception as notice_exc:
+            _log_auto_report(f"coros_auth_notice_failed error={notice_exc}")
+        return f"COROS auto report failed: {exc}"
     except Exception as exc:
         return f"COROS auto report failed: {exc}"
     finally:
@@ -752,12 +822,14 @@ async def _scheduled_check(client: discord.Client) -> None:
 
 
 def register_coros_auto_report(client: discord.Client) -> None:
+    if not _auto_report_enabled():
+        _log_auto_report("scheduler_disabled")
+        return
+
     add_interval_job(
         "coros-auto-report",
         _scheduled_check,
         _poll_minutes(),
         args=[client],
     )
-    _log_auto_report(
-        f"scheduler_started poll_minutes={_poll_minutes()} enabled={_auto_report_enabled()}"
-    )
+    _log_auto_report(f"scheduler_started poll_minutes={_poll_minutes()}")

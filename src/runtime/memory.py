@@ -3,6 +3,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from src.runtime.paths import tenant_data_dir
+from src.runtime.tenant import current_tenant, default_tenant_id
+
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 MEMORY_PATH = ROOT_DIR / "data" / "memory.json"
@@ -33,11 +36,18 @@ LEGACY_CACHE_KEYS = (
 )
 
 
+def _memory_path() -> Path:
+    if current_tenant().tenant_id == default_tenant_id():
+        return MEMORY_PATH
+    return tenant_data_dir() / "memory.json"
+
+
 def load_memory() -> dict[str, Any]:
-    if not MEMORY_PATH.exists():
+    path = _memory_path()
+    if not path.exists():
         save_memory(deepcopy(DEFAULT_MEMORY))
 
-    with MEMORY_PATH.open("r", encoding="utf-8") as file:
+    with path.open("r", encoding="utf-8") as file:
         memory = json.load(file)
 
     if _migrate_legacy_caches(memory):
@@ -72,8 +82,9 @@ def _migrate_legacy_caches(memory: dict[str, Any]) -> bool:
 
 
 def save_memory(memory: dict[str, Any]) -> None:
-    MEMORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with MEMORY_PATH.open("w", encoding="utf-8") as file:
+    path = _memory_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as file:
         json.dump(memory, file, ensure_ascii=False, indent=2)
         file.write("\n")
 

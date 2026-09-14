@@ -18,6 +18,7 @@ from agents.coros_report.activity_browser import summarize_activity
 from agents.coros_report.auto_report import activity_key, recent_coros_activities
 from agents.coros_report.shadowrunner_prompt import REPORT_SYSTEM_PROMPT
 from agents.coros_report.sleep_report_prompt import SLEEP_REPORT_SYSTEM_PROMPT
+from src.api.admin import admin_payload, apply_admin_action
 from src.api.i18n import localize
 from src.runtime import ratelimit
 from src.runtime.flow_map import module_payload
@@ -359,6 +360,15 @@ class WebHandler(BaseHTTPRequestHandler):
                 return
             self._send(*_json_response(_settings_payload(include_content=True)), include_body=include_body)
             return
+        if parsed.path == "/api/admin":
+            if not self._settings_authorized():
+                self._send(
+                    *_json_response({"error": "Administrator token required"}, HTTPStatus.UNAUTHORIZED),
+                    include_body=include_body,
+                )
+                return
+            self._send(*_json_response(admin_payload()), include_body=include_body)
+            return
         if parsed.path == "/data":
             self._serve_static("/data.html", include_body=include_body)
             return
@@ -367,6 +377,9 @@ class WebHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/settings":
             self._serve_static("/settings.html", include_body=include_body)
+            return
+        if parsed.path == "/admin":
+            self._serve_static("/admin.html", include_body=include_body)
             return
         if parsed.path.startswith("/media/photo-memory/"):
             self._serve_photo_media(parsed.path, include_body=include_body)
@@ -392,6 +405,9 @@ class WebHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/settings":
             self._handle_settings_post()
+            return
+        if parsed.path == "/api/admin":
+            self._handle_admin_post()
             return
         if parsed.path not in {"/api/chat", "/api/chat/stream"}:
             self._send(*_json_response({"error": "Endpoint not found"}, HTTPStatus.NOT_FOUND))
@@ -483,6 +499,23 @@ class WebHandler(BaseHTTPRequestHandler):
             else:
                 raise ValueError("Unsupported settings action.")
             self._send(*_json_response(_settings_payload(include_content=True)))
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            self._send(*_json_response({"error": str(exc)}, HTTPStatus.BAD_REQUEST))
+
+    def _handle_admin_post(self) -> None:
+        if not self._settings_authorized():
+            self._send(
+                *_json_response({"error": "Administrator token required"}, HTTPStatus.UNAUTHORIZED)
+            )
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > 32 * 1024:
+                raise ValueError("Request body must be between 1 byte and 32 KB.")
+            data = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("Request body must be a JSON object.")
+            self._send(*_json_response(apply_admin_action(data)))
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             self._send(*_json_response({"error": str(exc)}, HTTPStatus.BAD_REQUEST))
 
@@ -612,6 +645,9 @@ class WebHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
         for name, value in (extra_headers or {}).items():
             self.send_header(name, value)
         # 静态资源文件名没有版本号，长缓存会让部署后的一段时间内用户拿到旧前端，
