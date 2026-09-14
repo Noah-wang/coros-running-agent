@@ -15,6 +15,8 @@ from src.integrations.discord_forum import create_report_post
 from src.runtime.llm import complete_text
 from src.runtime.memory import format_memory_for_prompt, get_agent_cache, update_agent_cache
 from src.runtime.scheduler import add_interval_job
+from src.runtime.delivery import report_channel_id, scheduled_tenants
+from src.runtime.tenant import tenant_scope
 from src.runtime.trace import new_trace
 from src.runtime.prompt_skills import active_skill
 from src.runtime.runtime_settings import automation_enabled
@@ -184,13 +186,9 @@ def _llm_timeout_seconds() -> int:
 
 
 def _configured_channel_id() -> int | None:
-    value = os.getenv("DISCORD_RUNNING_CHANNEL_ID")
-    if not value:
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return None
+    # 按租户解析。默认租户仍读环境变量；其他租户只认自己配的频道，
+    # 没配就返回 None——回退到全局频道等于把别人的数据发进你的频道。
+    return report_channel_id()
 
 
 async def _report_channel(client: discord.Client) -> discord.abc.Messageable | None:
@@ -549,18 +547,34 @@ async def check_and_send_coros_sleep_report(
 
 
 async def _scheduled_check(client: discord.Client) -> None:
-    started_at = datetime.now(UTC)
-    timeout_seconds = _check_timeout_seconds()
-    _log_sleep_report(f"check_start timeout_seconds={timeout_seconds}")
-    try:
-        result = await asyncio.wait_for(
-            check_and_send_coros_sleep_report(client),
-            timeout=timeout_seconds,
-        )
-    except TimeoutError:
-        result = f"COROS sleep report failed: check timed out after {timeout_seconds}s."
-    elapsed = (datetime.now(UTC) - started_at).total_seconds()
-    _log_sleep_report(f"check_end elapsed={elapsed:.1f}s result={result}")
+    """替每个可用租户各跑一轮。
+
+    多租户没开时 scheduled_tenants() 只返回默认租户，
+    这个循环就退化成原来那一次调用，行为不变。
+
+    一个租户失败不能带塌其他人——所以异常在循环内部就地吞掉并记日志，
+    不往外抛。定时任务抛出去没人接，只会让这一轮剩下的租户全被跳过。
+    """
+    for context in scheduled_tenants():
+        with tenant_scope(context):
+            started_at = datetime.now(UTC)
+            timeout_seconds = _check_timeout_seconds()
+            _log_sleep_report(
+                f"check_start tenant={context.tenant_id} timeout_seconds={timeout_seconds}"
+            )
+            try:
+                result = await asyncio.wait_for(
+                    check_and_send_coros_sleep_report(client),
+                    timeout=timeout_seconds,
+                )
+            except TimeoutError:
+                result = f"COROS sleep report failed: check timed out after {timeout_seconds}s."
+            except Exception as exc:
+                result = f"COROS sleep report failed: {exc.__class__.__name__}: {exc}"
+            elapsed = (datetime.now(UTC) - started_at).total_seconds()
+            _log_sleep_report(
+                f"check_end tenant={context.tenant_id} elapsed={elapsed:.1f}s result={result}"
+            )
 
 
 def register_coros_sleep_report(client: discord.Client) -> None:

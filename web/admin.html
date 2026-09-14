@@ -105,7 +105,12 @@
           <label>账号状态<select name="status"><option value="active">可用</option><option value="paused">暂停</option><option value="disabled">停用</option></select></label>
           <label>到期日期<input name="subscription_expires_at" type="date"></label>
         </div>
-        <p class="dialog-note" id="ownerEditNote" hidden>主账号只允许修改显示名称，避免误停服务。</p>
+        <div class="dialog-fields" id="deliveryFields">
+          <label>报告频道 ID<input name="report_channel_id" maxlength="32" inputmode="numeric" pattern="[0-9]*" placeholder="Discord 频道号，纯数字"></label>
+          <label>报告论坛 ID（可选）<input name="report_forum_channel_id" maxlength="32" inputmode="numeric" pattern="[0-9]*" placeholder="留空则直接发到上面的频道"></label>
+        </div>
+        <p class="dialog-note">不填报告频道，这个用户的自动报告不会发出，<strong>不会</strong>退回主账号的频道。</p>
+        <p class="dialog-note" id="ownerEditNote" hidden>主账号只允许修改显示名称，避免误停服务。主账号的投递目标来自 .env。</p>
         <footer><button type="button" class="secondary-button" data-close="editTenantDialog">取消</button><button type="submit" class="primary-button">保存修改</button></footer>
       </form>
     </dialog>

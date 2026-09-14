@@ -109,10 +109,21 @@ function openEdit(tenant) {
   form.elements.subscription_status.value = tenant.subscription_status;
   form.elements.status.value = tenant.status;
   form.elements.subscription_expires_at.value = (tenant.subscription_expires_at || "").slice(0, 10);
+  form.elements.report_channel_id.value = tenant.report_channel_id || "";
+  form.elements.report_forum_channel_id.value = tenant.report_forum_channel_id || "";
   const owner = tenant.id === "default";
-  for (const name of ["plan_code", "subscription_status", "status", "subscription_expires_at"]) {
+  for (const name of [
+    "plan_code",
+    "subscription_status",
+    "status",
+    "subscription_expires_at",
+    "report_channel_id",
+    "report_forum_channel_id",
+  ]) {
     form.elements[name].disabled = owner;
   }
+  // 主账号的投递目标来自 .env，后台改不了，整块藏起来免得看着像能改。
+  document.querySelector("#deliveryFields").hidden = owner;
   document.querySelector("#ownerEditNote").hidden = !owner;
   document.querySelector("#editTenantDialog").showModal();
 }
@@ -261,6 +272,8 @@ document.querySelector("#editTenantForm").addEventListener("submit", async (even
       subscription_status: data.get("subscription_status"),
       status: data.get("status"),
       subscription_expires_at: data.get("subscription_expires_at"),
+      report_channel_id: data.get("report_channel_id"),
+      report_forum_channel_id: data.get("report_forum_channel_id"),
     });
   }
   await mutate(body);

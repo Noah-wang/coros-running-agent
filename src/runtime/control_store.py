@@ -28,7 +28,14 @@ _UPDATABLE_TENANT_FIELDS = {
     "plan_code",
     "subscription_status",
     "subscription_expires_at",
+    # 每个租户自己的报告投递目标。不配的话自动报告无处可去——
+    # **绝不能回退到全局那个频道**，那等于把别人的运动数据发进你的频道。
+    "report_channel_id",
+    "report_forum_channel_id",
 }
+
+# 只允许纯数字的 Discord 频道号，或空（表示未配置）。
+_CHANNEL_FIELDS = {"report_channel_id", "report_forum_channel_id"}
 
 
 def _now() -> str:
@@ -64,6 +71,8 @@ class ControlStore:
                     plan_code TEXT NOT NULL DEFAULT 'trial',
                     subscription_status TEXT NOT NULL DEFAULT 'trial',
                     subscription_expires_at TEXT,
+                    report_channel_id TEXT,
+                    report_forum_channel_id TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -100,6 +109,20 @@ class ControlStore:
                 );
                 """
             )
+            self._migrate(db)
+
+    @staticmethod
+    def _migrate(db: sqlite3.Connection) -> None:
+        """给已经存在的库补列。
+
+        CREATE TABLE IF NOT EXISTS 对**已存在**的表不做任何事——
+        新字段只会出现在全新安装上，线上那份老库悄悄地少两列，
+        直到某次 UPDATE 报 "no such column" 才发现。
+        """
+        existing = {row["name"] for row in db.execute("PRAGMA table_info(tenants)")}
+        for column in ("report_channel_id", "report_forum_channel_id"):
+            if column not in existing:
+                db.execute(f"ALTER TABLE tenants ADD COLUMN {column} TEXT")
 
     @staticmethod
     def _tenant(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -175,6 +198,18 @@ class ControlStore:
             and values["subscription_status"] not in _SUBSCRIPTION_STATUSES
         ):
             raise ValueError("invalid subscription status")
+        for field in _CHANNEL_FIELDS & values.keys():
+            raw = values[field]
+            if raw in {None, ""}:
+                values[field] = None
+                continue
+            text = str(raw).strip()
+            # Discord 频道号就是一串数字。不校验的话，粘进来一个带空格的
+            # 频道名会被原样存下，直到某天报告发不出去才发现。
+            if not text.isdigit() or len(text) > 32:
+                raise ValueError(f"{field} must be a numeric Discord channel id")
+            values[field] = text
+
         if "name" in values:
             values["name"] = str(values["name"]).strip()
             if not values["name"] or len(values["name"]) > 120:

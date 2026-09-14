@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 import discord
 
+from src.runtime.delivery import report_forum_channel_id
+
 
 @dataclass(frozen=True)
 class ForumPost:
@@ -21,7 +23,7 @@ def _configured_id(name: str) -> int | None:
 
 
 async def _forum_channel(client: discord.Client) -> discord.ForumChannel | None:
-    channel_id = _configured_id("DISCORD_REPORT_FORUM_CHANNEL_ID")
+    channel_id = report_forum_channel_id()
     if channel_id is None:
         return None
 

@@ -201,10 +201,14 @@ def apply_admin_action(data: dict[str, Any], store: ControlStore | None = None) 
                 "plan_code",
                 "subscription_status",
                 "subscription_expires_at",
+                "report_channel_id",
+                "report_forum_channel_id",
             )
             if key in data
         }
         if tenant_id == "default":
+            # 默认租户的投递目标来自 .env（保持旧安装零改动），
+            # 在后台改会造成「界面一个值、实际发到另一个频道」的错位。
             changes = {key: value for key, value in changes.items() if key == "name"}
         registry.update_tenant(tenant_id, **changes)
     elif action == "bind_identity":
