@@ -5,6 +5,9 @@ import json
 import os
 import re
 import sys
+import threading
+import time
+from collections import defaultdict, deque
 from dataclasses import asdict, dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -34,6 +37,55 @@ from src.runtime.runtime_settings import automation_payload, set_automation_enab
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 WEB_DIR = ROOT_DIR / "web"
+
+# 鉴权失败的计数，按来源 IP 分。
+#
+# 和 ratelimit 那套分开：那个按「请求频率」保护模型账单，窗口和阈值都是
+# 按正常聊天量定的；这里要挡的是**慢速爆破**——一分钟试几次、试上一整天，
+# 在聊天限流看来完全正常。
+_AUTH_FAILURES: dict[str, deque[float]] = defaultdict(deque)
+_AUTH_LOCK = threading.Lock()
+
+
+def _auth_fail_window() -> float:
+    return float(os.getenv("WEB_AUTH_FAIL_WINDOW_SECONDS", "900"))
+
+
+def _auth_fail_limit() -> int:
+    return int(os.getenv("WEB_AUTH_FAIL_LIMIT", "5"))
+
+
+def _record_auth_failure(source: str) -> None:
+    now = time.monotonic()
+    with _AUTH_LOCK:
+        window = _AUTH_FAILURES[source]
+        window.append(now)
+        cutoff = now - _auth_fail_window()
+        while window and window[0] < cutoff:
+            window.popleft()
+
+
+def _auth_failure_blocked(source: str) -> tuple[bool, int]:
+    now = time.monotonic()
+    with _AUTH_LOCK:
+        window = _AUTH_FAILURES.get(source)
+        if not window:
+            return False, 0
+        cutoff = now - _auth_fail_window()
+        while window and window[0] < cutoff:
+            window.popleft()
+        if len(window) < _auth_fail_limit():
+            return False, 0
+        retry_after = max(1, int(window[0] + _auth_fail_window() - now))
+        return True, retry_after
+
+
+def _clear_auth_failures(source: str) -> None:
+    """认证成功就清零。否则自己输错几次会把自己锁在门外。"""
+    with _AUTH_LOCK:
+        _AUTH_FAILURES.pop(source, None)
+
+
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
 # 公开入口只读。running-video、feel、coros-fit-sync 是写操作，不在白名单里。
@@ -352,21 +404,21 @@ class WebHandler(BaseHTTPRequestHandler):
             )
             return
         if parsed.path == "/api/settings":
-            if not self._settings_authorized():
-                self._send(
-                    *_json_response({"error": "Administrator token required"}, HTTPStatus.UNAUTHORIZED),
-                    include_body=include_body,
-                )
+            if self._auth_throttled(include_body=include_body):
                 return
+            if not self._settings_authorized():
+                self._reject_unauthorized("settings", include_body=include_body)
+                return
+            _clear_auth_failures(self._client_ip())
             self._send(*_json_response(_settings_payload(include_content=True)), include_body=include_body)
             return
         if parsed.path == "/api/admin":
-            if not self._settings_authorized():
-                self._send(
-                    *_json_response({"error": "Administrator token required"}, HTTPStatus.UNAUTHORIZED),
-                    include_body=include_body,
-                )
+            if self._auth_throttled(include_body=include_body):
                 return
+            if not self._admin_authorized():
+                self._reject_unauthorized("admin", include_body=include_body)
+                return
+            _clear_auth_failures(self._client_ip())
             self._send(*_json_response(admin_payload()), include_body=include_body)
             return
         if parsed.path == "/data":
@@ -460,20 +512,74 @@ class WebHandler(BaseHTTPRequestHandler):
                 )
             )
 
-    def _settings_authorized(self) -> bool:
-        expected = os.getenv("WEB_SETTINGS_TOKEN", "").strip()
+    def _bearer_token(self) -> str:
+        header = self.headers.get("Authorization", "")
+        return header[7:].strip() if header.startswith("Bearer ") else ""
+
+    def _token_matches(self, env_name: str) -> bool:
+        """比对某个令牌。**没配就一律拒绝**，不是一律放行。
+
+        环境变量缺失时放行是这类代码最常见的写法，也是最糟的：
+        少配一个变量，一个管理接口就对全世界敞开，而且毫无征兆。
+        """
+        expected = os.getenv(env_name, "").strip()
         if not expected:
             return False
-        header = self.headers.get("Authorization", "")
-        provided = header[7:].strip() if header.startswith("Bearer ") else ""
+        provided = self._bearer_token()
         return bool(provided and hmac.compare_digest(provided, expected))
 
+    def _settings_authorized(self) -> bool:
+        return self._token_matches("WEB_SETTINGS_TOKEN")
+
+    def _admin_authorized(self) -> bool:
+        """管理后台单独一把钥匙。
+
+        原来它和设置页共用 WEB_SETTINGS_TOKEN，但两者权限根本不是一个量级：
+        设置页只是开关自动化，管理后台能建用户、改订阅、看所有租户的用量。
+        共用等于把「改个开关」的钥匙升级成了「管理所有人」的钥匙。
+        """
+        return self._token_matches("WEB_ADMIN_TOKEN")
+
+    def _reject_unauthorized(self, kind: str, include_body: bool = True) -> None:
+        """记一次失败并返回 401。失败要计数，否则令牌可以被无限次猜。"""
+        source = self._client_ip()
+        _record_auth_failure(source)
+        log_event("auth_failed", kind=kind, source=source)
+        self._send(
+            *_json_response({"error": "Administrator token required"}, HTTPStatus.UNAUTHORIZED),
+            include_body=include_body,
+        )
+
+    def _auth_throttled(self, include_body: bool = True) -> bool:
+        """猜错太多次就先晾一会儿。
+
+        `/api/chat` 那条限流管不到鉴权端点——原来这里完全不限速，
+        意味着可以拿脚本无限次试令牌，而令牌是这道门唯一的锁。
+        """
+        blocked, retry_after = _auth_failure_blocked(self._client_ip())
+        if not blocked:
+            return False
+        log_event("auth_throttled", source=self._client_ip(), retry_after=retry_after)
+        status, body, content_type = _json_response(
+            {"error": f"Too many failed attempts. Try again in {retry_after} seconds."},
+            HTTPStatus.TOO_MANY_REQUESTS,
+        )
+        self._send(
+            status,
+            body,
+            content_type,
+            extra_headers={"Retry-After": str(retry_after)},
+            include_body=include_body,
+        )
+        return True
+
     def _handle_settings_post(self) -> None:
-        if not self._settings_authorized():
-            self._send(
-                *_json_response({"error": "Administrator token required"}, HTTPStatus.UNAUTHORIZED)
-            )
+        if self._auth_throttled():
             return
+        if not self._settings_authorized():
+            self._reject_unauthorized("settings")
+            return
+        _clear_auth_failures(self._client_ip())
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > 80 * 1024:
@@ -503,11 +609,12 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send(*_json_response({"error": str(exc)}, HTTPStatus.BAD_REQUEST))
 
     def _handle_admin_post(self) -> None:
-        if not self._settings_authorized():
-            self._send(
-                *_json_response({"error": "Administrator token required"}, HTTPStatus.UNAUTHORIZED)
-            )
+        if self._auth_throttled():
             return
+        if not self._admin_authorized():
+            self._reject_unauthorized("admin")
+            return
+        _clear_auth_failures(self._client_ip())
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > 32 * 1024:

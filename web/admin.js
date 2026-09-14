@@ -4,7 +4,7 @@ const actions = document.querySelector("#adminActions");
 const statusText = document.querySelector("#statusText");
 let state = null;
 
-function token() { return sessionStorage.getItem("coros-settings-token") || ""; }
+function token() { return sessionStorage.getItem("coros-admin-token") || ""; }
 function setStatus(message, error = false) {
   statusText.textContent = message;
   statusText.classList.toggle("error", error);
@@ -229,7 +229,7 @@ function render() {
 
 document.querySelector("#authPanel").addEventListener("submit", (event) => {
   event.preventDefault();
-  sessionStorage.setItem("coros-settings-token", tokenInput.value.trim());
+  sessionStorage.setItem("coros-admin-token", tokenInput.value.trim());
   load();
 });
 document.querySelector("#refreshButton").addEventListener("click", load);

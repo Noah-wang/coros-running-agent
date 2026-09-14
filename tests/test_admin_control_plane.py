@@ -70,7 +70,10 @@ def test_admin_payload_never_returns_secret_values(tmp_path, monkeypatch):
 
 
 def test_admin_api_requires_token_and_supports_tenant_creation(tmp_path, monkeypatch):
-    monkeypatch.setenv("WEB_SETTINGS_TOKEN", "test-admin-token")
+    # 管理后台走自己的 WEB_ADMIN_TOKEN。设置页的令牌**不该**能开这扇门，
+    # 下面那条断言就是守这个的。
+    monkeypatch.setenv("WEB_ADMIN_TOKEN", "test-admin-token")
+    monkeypatch.setenv("WEB_SETTINGS_TOKEN", "settings-only-token")
     monkeypatch.setenv("CONTROL_DB_PATH", str(tmp_path / "control.db"))
     server = ThreadingHTTPServer(("127.0.0.1", 0), WebHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -80,6 +83,18 @@ def test_admin_api_requires_token_and_supports_tenant_creation(tmp_path, monkeyp
     try:
         with pytest.raises(HTTPError) as exc_info:
             urlopen(f"{base_url}/api/admin", timeout=3)
+        assert exc_info.value.code == 401
+
+        # 设置页的令牌不能开管理后台。这条要走真的 HTTP——
+        # 单元层面比对函数是一回事，端点上真的挡住是另一回事。
+        with pytest.raises(HTTPError) as exc_info:
+            urlopen(
+                Request(
+                    f"{base_url}/api/admin",
+                    headers={"Authorization": "Bearer settings-only-token"},
+                ),
+                timeout=3,
+            )
         assert exc_info.value.code == 401
 
         request = Request(
