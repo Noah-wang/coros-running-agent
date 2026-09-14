@@ -445,6 +445,11 @@ COROS_AUTO_REPORT_STABLE_CHECKS=2   # 连续 2 次读到一样的报告数据才
 COROS_AUTO_REPORT_STABLE_MINUTES=0  # 额外的时钟下限，0 = 只看数据变没变
 
 LLM_THINKING=off                    # 推理模型的思考段。实测报告 109s→34s，质量无差别
+
+WEB_ADMIN_TOKEN=...                 # /admin 的独立密码，和 WEB_SETTINGS_TOKEN 分开
+WEB_AUTH_FAIL_LIMIT=5               # 同一 IP 猜错几次后返回 429
+MULTI_TENANT_ENABLED=false          # 多租户总开关，开之前先在 /admin 绑好身份
+COROS_OAUTH_REDIRECT_URI=           # 留空则用 https://<WEB_PUBLIC_DOMAIN>/coros/callback
 COROS_AUTO_REPORT_SEND_ON_FIRST_RUN=false
 
 WEB_AGENT_MODE=real                # demo = 离线假数据
