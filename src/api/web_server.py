@@ -254,8 +254,25 @@ def _demo_trace_modules(prompt: str) -> tuple[str, ...]:
     return ("entry", "router", "capability", "profile", "knowledge", "llm", "answer")
 
 
-ARCHITECTURE_DOC_PATH = ROOT_DIR / "docs" / "ARCHITECTURE.en.md"
-RAG_DOC_PATH = ROOT_DIR / "docs" / "rag-pipeline.en.md"
+# 技术页的正文直接来自这两份 Markdown。
+#
+# **两份不是互译**：`.md` 是完整的中文文档（架构 15K、RAG 36K），
+# `.en.md` 是给英文读者的精简节选（3.8K / 2.7K）。
+# 所以不能靠翻译表处理——得按语言挑文件。
+#
+# 原来这里写死成 `.en.md`，于是语言开关切到中文时，
+# 标签变成「系统架构」而正文还是英文，而且只有节选那一份。
+ARCHITECTURE_DOC_STEM = "ARCHITECTURE"
+RAG_DOC_STEM = "rag-pipeline"
+
+
+def _doc_path(stem: str, lang: str) -> Path:
+    base = ROOT_DIR / "docs"
+    if lang == "zh":
+        chinese = base / f"{stem}.md"
+        if chinese.exists():
+            return chinese
+    return base / f"{stem}.en.md"
 
 
 def _split_markdown(text: str) -> list[dict[str, Any]]:
@@ -291,12 +308,20 @@ def _split_markdown(text: str) -> list[dict[str, Any]]:
     return sections
 
 
-def _tech_payload() -> dict[str, Any]:
+def _tech_payload(lang: str = "en") -> dict[str, Any]:
     """把开源版通用技术文档整理成网页 tab。"""
     return {
         "tabs": [
-            {"key": "architecture", "title": "System architecture", "items": _doc_items(ARCHITECTURE_DOC_PATH)},
-            {"key": "rag", "title": "RAG pipeline", "items": _rag_items()},
+            {
+                "key": "architecture",
+                "title": "System architecture",
+                "items": _doc_items(_doc_path(ARCHITECTURE_DOC_STEM, lang)),
+            },
+            {
+                "key": "rag",
+                "title": "RAG pipeline",
+                "items": _rag_items(lang),
+            },
         ]
     }
 
@@ -324,13 +349,13 @@ def _section_body(section: dict[str, Any]) -> str:
     return "\n\n".join(part for part in parts if part).strip()
 
 
-def _rag_items() -> list[dict[str, str]]:
+def _rag_items(lang: str = "en") -> list[dict[str, str]]:
     """RAG 全流程文档按 ## 一级标题拆成条目。
 
     这份文档只有一层标题，每个标题就是流水线里的一个环节，
     所以直接用顶级 section 当条目，不像迭代报告那样取子节。
     """
-    return _doc_items(RAG_DOC_PATH)
+    return _doc_items(_doc_path(RAG_DOC_STEM, lang))
 
 
 def _json_response(payload: Any, status: HTTPStatus = HTTPStatus.OK) -> tuple[int, bytes, str]:
@@ -411,7 +436,7 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send(*_json_response(localize(payload, lang)), include_body=include_body)
             return
         if parsed.path == "/api/tech":
-            self._send(*_json_response(localize(_tech_payload(), lang)), include_body=include_body)
+            self._send(*_json_response(localize(_tech_payload(lang), lang)), include_body=include_body)
             return
         if parsed.path == "/api/showcase":
             self._send(*_json_response(localize(_showcase_payload(), lang)), include_body=include_body)
