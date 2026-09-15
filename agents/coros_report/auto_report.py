@@ -23,7 +23,12 @@ from src.runtime.memory import (
     update_agent_memory,
 )
 from src.runtime.scheduler import add_interval_job
-from src.runtime.delivery import report_channel_id, scheduled_tenants
+from src.runtime.delivery import (
+    deliver_non_discord,
+    report_channel_id,
+    report_targets,
+    scheduled_tenants,
+)
 from src.runtime.tenant import tenant_scope
 from src.runtime.prompt_skills import active_skill
 from src.runtime.runtime_settings import automation_enabled
@@ -732,8 +737,10 @@ async def check_and_send_coros_auto_report(
     try:
         _log_auto_report("channel_lookup_start")
         channel = await _report_channel(client)
-        if channel is None:
-            return "COROS auto report skipped: DISCORD_RUNNING_CHANNEL_ID is invalid."
+        # 只用邮件的租户没有 Discord 频道，但**不该因此收不到报告**。
+        # 原来这里直接返回，等于把投递方式写死成 Discord。
+        if channel is None and not report_targets():
+            return "COROS auto report skipped: no delivery target configured."
         _log_auto_report("channel_lookup_end")
 
         _log_auto_report("latest_activity_lookup_start")
@@ -773,19 +780,24 @@ async def check_and_send_coros_auto_report(
         _log_auto_report("report_generation_start")
         report = await generate_auto_activity_report(activity)
         _log_auto_report(f"report_generation_end chars={len(report)}")
-        _log_auto_report("discord_forum_post_start")
-        forum_post = await create_report_post(
-            client,
-            _activity_title(activity),
-            report,
-            "DISCORD_COROS_ACTIVITY_FORUM_TAG_ID",
-        )
-        destination = forum_post.thread if forum_post is not None else channel
-        if forum_post is None:
-            await channel.send("检测到新的 COROS 运动，已自动生成报告。")
-            await _send_chunks(channel, report)
-        _log_auto_report("discord_forum_post_end")
-        await _send_route_map_if_available(destination, activity)
+        title = _activity_title(activity)
+        if channel is not None:
+            _log_auto_report("discord_forum_post_start")
+            forum_post = await create_report_post(
+                client, title, report, "DISCORD_COROS_ACTIVITY_FORUM_TAG_ID"
+            )
+            destination = forum_post.thread if forum_post is not None else channel
+            if forum_post is None:
+                await channel.send("检测到新的 COROS 运动，已自动生成报告。")
+                await _send_chunks(channel, report)
+            _log_auto_report("discord_forum_post_end")
+            await _send_route_map_if_available(destination, activity)
+
+        # 扇出到 Discord 之外的目标（目前是邮件）。报告已经生成好了，
+        # 这里的失败不该影响上面已经发成功的那份。
+        extra = await deliver_non_discord(f"运动报告 · {title}", report)
+        if extra:
+            _log_auto_report(f"extra_delivery {' '.join(extra)}")
         mark_activity_reported(activity)
         _clear_candidate()
         _log_auto_report("mark_activity_reported")

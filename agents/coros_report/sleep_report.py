@@ -15,7 +15,12 @@ from src.integrations.discord_forum import create_report_post
 from src.runtime.llm import complete_text
 from src.runtime.memory import format_memory_for_prompt, get_agent_cache, update_agent_cache
 from src.runtime.scheduler import add_interval_job
-from src.runtime.delivery import report_channel_id, scheduled_tenants
+from src.runtime.delivery import (
+    deliver_non_discord,
+    report_channel_id,
+    report_targets,
+    scheduled_tenants,
+)
 from src.runtime.tenant import tenant_scope
 from src.runtime.trace import new_trace
 from src.runtime.prompt_skills import active_skill
@@ -492,8 +497,10 @@ async def check_and_send_coros_sleep_report(
     try:
         _log_sleep_report("channel_lookup_start")
         channel = await _report_channel(client)
-        if channel is None:
-            return "COROS sleep report skipped: DISCORD_RUNNING_CHANNEL_ID is invalid."
+        # 只用邮件的租户没有 Discord 频道，但**不该因此收不到报告**。
+        # 原来这里直接返回，等于把投递方式写死成 Discord。
+        if channel is None and not report_targets():
+            return "COROS sleep report skipped: no delivery target configured."
         _log_sleep_report("channel_lookup_end")
 
         tool_results: list[dict[str, Any]] | None = None
@@ -528,15 +535,21 @@ async def check_and_send_coros_sleep_report(
 
         report = await generate_sleep_report(target_day, tool_results)
         results = tool_results or []
-        forum_post = await create_report_post(
-            client,
-            _sleep_title(target_day, results, report),
-            report,
-            "DISCORD_COROS_SLEEP_FORUM_TAG_ID",
-        )
-        if forum_post is None:
-            await channel.send(f"早上好，已完成 {target_day.isoformat()} 的 COROS 睡眠与恢复分析。")
-            await _send_chunks(channel, report)
+        title = _sleep_title(target_day, results, report)
+        if channel is not None:
+            forum_post = await create_report_post(
+                client, title, report, "DISCORD_COROS_SLEEP_FORUM_TAG_ID"
+            )
+            if forum_post is None:
+                await channel.send(
+                    f"早上好，已完成 {target_day.isoformat()} 的 COROS 睡眠与恢复分析。"
+                )
+                await _send_chunks(channel, report)
+
+        # 扇出到 Discord 之外的目标（目前是邮件）。
+        extra = await deliver_non_discord(f"睡眠晨报 · {title}", report)
+        if extra:
+            _log_sleep_report(f"extra_delivery {' '.join(extra)}")
         _mark_sent(target_day)
         _log_sleep_report(f"mark_sleep_report_sent date={target_day.isoformat()}")
         return "COROS sleep report sent."

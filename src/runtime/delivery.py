@@ -81,3 +81,61 @@ def scheduled_tenants() -> list[TenantContext]:
         for tenant in tenants
         if tenant_is_available(tenant)
     ]
+
+
+# ── 多平台投递 ────────────────────────────────────────────────────────
+
+def report_targets(tenant_id: str | None = None) -> list[dict[str, str]]:
+    """这个租户配了哪些投递目标。
+
+    默认租户没在控制库里配过的话，退回 .env 里那个 Discord 频道——
+    升级前的安装什么都不用改。**其他租户不退回**，理由见 report_channel_id。
+    """
+    tenant = tenant_id or current_tenant().tenant_id
+    try:
+        rows = get_control_store().list_delivery_targets(tenant)
+    except Exception:
+        rows = []
+
+    targets = [
+        {"provider": str(r["provider"]), "target": str(r["target"])}
+        for r in rows
+        if r.get("provider") and r.get("target")
+    ]
+    if targets:
+        return targets
+
+    channel_id = report_channel_id()
+    return [{"provider": "discord", "target": str(channel_id)}] if channel_id else []
+
+
+def email_targets(tenant_id: str | None = None) -> list[str]:
+    return [t["target"] for t in report_targets(tenant_id) if t["provider"] == "email"]
+
+
+async def deliver_non_discord(subject: str, body: str, tenant_id: str | None = None) -> list[str]:
+    """把报告发到 Discord 之外的目标。返回成功送达的目标描述。
+
+    Discord 那条路单独走，因为它有论坛发帖和路线图附件这些邮件没有的东西。
+    这里只管扇出文本。
+
+    **一个目标失败不能影响其他目标**，也不能让整个报告任务崩掉——
+    报告已经生成好了，因为一个邮箱地址写错就全丢掉是最糟的结果。
+    """
+    import asyncio
+
+    from src.integrations.email_sender import configured as email_configured
+    from src.integrations.email_sender import send_report
+    from src.runtime.trace import log_event
+
+    delivered: list[str] = []
+    for address in email_targets(tenant_id):
+        if not email_configured():
+            log_event("email_skipped", reason="smtp_not_configured")
+            break
+        try:
+            await asyncio.to_thread(send_report, address, subject, body)
+            delivered.append(f"email:{address.split('@')[-1]}")
+        except Exception as exc:
+            log_event("email_failed", error=str(exc)[:200])
+    return delivered

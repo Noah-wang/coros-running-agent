@@ -100,6 +100,17 @@ class ControlStore:
                 CREATE INDEX IF NOT EXISTS usage_events_tenant_created
                     ON usage_events(tenant_id, created_at);
 
+                CREATE TABLE IF NOT EXISTS delivery_targets (
+                    id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                    provider TEXT NOT NULL,
+                    target TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(tenant_id, provider, target)
+                );
+                CREATE INDEX IF NOT EXISTS delivery_targets_tenant
+                    ON delivery_targets(tenant_id);
+
                 CREATE TABLE IF NOT EXISTS audit_events (
                     id TEXT PRIMARY KEY,
                     tenant_id TEXT,
@@ -123,6 +134,66 @@ class ControlStore:
         for column in ("report_channel_id", "report_forum_channel_id"):
             if column not in existing:
                 db.execute(f"ALTER TABLE tenants ADD COLUMN {column} TEXT")
+
+        # 把 tenants.report_channel_id 里已有的值搬进 delivery_targets。
+        # 不搬的话，之前在后台配过频道的租户会在升级后**静默失去投递目标**——
+        # 报告不再发出，而且没有任何报错。
+        rows = db.execute(
+            "SELECT id, report_channel_id FROM tenants WHERE report_channel_id IS NOT NULL"
+        ).fetchall()
+        for row in rows:
+            db.execute(
+                "INSERT OR IGNORE INTO delivery_targets "
+                "(id, tenant_id, provider, target, created_at) VALUES (?, ?, ?, ?, ?)",
+                (uuid.uuid4().hex, row["id"], "discord", row["report_channel_id"], _now()),
+            )
+
+    # ── 投递目标 ──────────────────────────────────────────────────
+    #
+    # 为什么不是 tenants 表上再加几列：每多支持一个平台就要加一列，
+    # 三个平台之后没法看；而且一个人可能想同时收 Discord 和邮件。
+
+    ALLOWED_DELIVERY_PROVIDERS = {"discord", "email", "feishu"}
+
+    def add_delivery_target(self, tenant_id: str, provider: str, target: str) -> dict[str, Any]:
+        provider = provider.strip().lower()
+        target = target.strip()
+        if provider not in self.ALLOWED_DELIVERY_PROVIDERS:
+            raise ValueError(f"provider must be one of {sorted(self.ALLOWED_DELIVERY_PROVIDERS)}")
+        if not target or len(target) > 320:
+            raise ValueError("target must contain 1-320 characters")
+        if provider in {"discord", "feishu"} and provider == "discord" and not target.isdigit():
+            raise ValueError("discord target must be a numeric channel id")
+        if provider == "email" and ("@" not in target or " " in target):
+            raise ValueError("email target must be an email address")
+
+        with self._lock, self._connect() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO delivery_targets "
+                "(id, tenant_id, provider, target, created_at) VALUES (?, ?, ?, ?, ?)",
+                (uuid.uuid4().hex, tenant_id, provider, target, _now()),
+            )
+        return {"tenant_id": tenant_id, "provider": provider, "target": target}
+
+    def remove_delivery_target(self, tenant_id: str, provider: str, target: str) -> None:
+        with self._lock, self._connect() as db:
+            db.execute(
+                "DELETE FROM delivery_targets WHERE tenant_id = ? AND provider = ? AND target = ?",
+                (tenant_id, provider.strip().lower(), target.strip()),
+            )
+
+    def list_delivery_targets(self, tenant_id: str | None = None) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as db:
+            if tenant_id:
+                rows = db.execute(
+                    "SELECT * FROM delivery_targets WHERE tenant_id = ? ORDER BY provider",
+                    (tenant_id,),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT * FROM delivery_targets ORDER BY tenant_id, provider"
+                ).fetchall()
+        return [dict(row) for row in rows]
 
     @staticmethod
     def _tenant(row: sqlite3.Row | None) -> dict[str, Any] | None:
