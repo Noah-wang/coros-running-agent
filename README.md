@@ -344,6 +344,11 @@ data/
 更详细的设计取舍见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，
 RAG 那部分单独写在 [docs/rag-pipeline.md](docs/rag-pipeline.md)。
 
+想知道每个决定是怎么做出来的、踩过哪些坑，看
+[docs/project-iteration-report.md](docs/project-iteration-report.md)——
+四千行的建设日志，按时间顺序记着当时的处境，包括后来被推翻的判断。
+那是一份历史记录，不是当前架构的说明。
+
 ---
 
 ## 用到的开源项目
